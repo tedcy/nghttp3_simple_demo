@@ -54,8 +54,6 @@ struct Stream {
   Stream(const Request &req, int64_t stream_id);
   ~Stream();
 
-  int open_file(const std::string_view &path);
-
   Request req;
   int64_t stream_id;
   int fd;
@@ -138,8 +136,6 @@ public:
 
   bool get_early_data() const;
   void early_data_rejected();
-
-  bool should_exit() const;
 
 private:
   std::vector<Endpoint> endpoints_;

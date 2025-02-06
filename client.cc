@@ -46,37 +46,6 @@ Stream::~Stream() {
   }
 }
 
-int Stream::open_file(const std::string_view &path) {
-  assert(fd == -1);
-
-  std::string_view filename;
-
-  auto it = std::find(std::rbegin(path), std::rend(path), '/').base();
-  if (it == std::end(path)) {
-    filename = "index.html"sv;
-  } else {
-    filename = std::string_view{it, static_cast<size_t>(std::end(path) - it)};
-    if (filename == ".."sv || filename == "."sv) {
-      std::cerr << "Invalid file name: " << filename << std::endl;
-      return -1;
-    }
-  }
-
-  auto fname = std::string{config.download};
-  fname += '/';
-  fname += filename;
-
-  fd = open(fname.c_str(), O_WRONLY | O_CREAT | O_TRUNC,
-            S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH);
-  if (fd == -1) {
-    std::cerr << "open: Could not open file " << fname << ": "
-              << strerror(errno) << std::endl;
-    return -1;
-  }
-
-  return 0;
-}
-
 namespace {
 void writecb(struct ev_loop *loop, ev_io *w, int revents) {
   auto c = static_cast<Client *>(w->data);
@@ -1602,9 +1571,6 @@ int Client::on_extend_max_streams() {
       break;
     }
 
-    if (!config.download.empty()) {
-      stream->open_file(stream->req.path);
-    }
     streams_.emplace(stream_id, std::move(stream));
   }
   return 0;

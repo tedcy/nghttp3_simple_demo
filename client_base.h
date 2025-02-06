@@ -95,9 +95,6 @@ struct Config {
   // address offered by server.
   bool no_preferred_addr;
   std::string_view http_method;
-  // download is a path to a directory where a downloaded file is
-  // saved.  If it is empty, no file is saved.
-  std::string_view download;
   // requests contains URIs to request.
   std::vector<Request> requests;
   // no_quic_dump is true if hexdump of QUIC STREAM and CRYPTO data
