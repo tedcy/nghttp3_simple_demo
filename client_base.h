@@ -70,15 +70,11 @@ struct Config {
   uint8_t *data;
   // datalen is the length of file denoted by fd.
   size_t datalen;
-  // version is a QUIC version to use.
-  uint32_t version;
   // quiet suppresses the output normally shown except for the error
   // messages.
   bool quiet;
   // timeout is an idle timeout for QUIC connection.
   ngtcp2_duration timeout;
-  // session_file is a path to a file to write, and read TLS session.
-  const char *session_file;
   // tp_file is a path to a file to write, and read QUIC transport
   // parameters.
   const char *tp_file;
@@ -110,11 +106,6 @@ struct Config {
   // no_http_dump is true if hexdump of HTTP response body should be
   // disabled.
   bool no_http_dump;
-  // qlog_file is the path to write qlog.
-  std::string_view qlog_file;
-  // qlog_dir is the path to directory where qlog is stored.  qlog_dir
-  // and qlog_file are mutually exclusive.
-  std::string_view qlog_dir;
   // max_data is the initial connection-level flow control window.
   uint64_t max_data;
   // max_stream_data_bidi_local is the initial stream-level flow
@@ -140,14 +131,6 @@ struct Config {
   // max_stream_window is the maximum stream-level flow control window
   // size if auto-tuning is enabled.
   uint64_t max_stream_window;
-  // exit_on_first_stream_close is the flag that if it is true, client
-  // exits when a first HTTP stream gets closed.  It is not
-  // necessarily the same time when the underlying QUIC stream closes
-  // due to the QPACK synchronization.
-  bool exit_on_first_stream_close;
-  // exit_on_all_streams_close is the flag that if it is true, client
-  // exits when all HTTP streams get closed.
-  bool exit_on_all_streams_close;
   // disable_early_data disables early data.
   bool disable_early_data;
   // static_secret is used to derive keying materials for Stateless
@@ -182,10 +165,6 @@ struct Config {
   // ack_thresh is the minimum number of the received ACK eliciting
   // packets that triggers immediate acknowledgement.
   size_t ack_thresh;
-  // wait_for_ticket, if true, waits for a ticket to be received
-  // before exiting on exit_on_first_stream_close or
-  // exit_on_all_streams_close.
-  bool wait_for_ticket;
 };
 
 class ClientBase {
@@ -203,15 +182,12 @@ public:
 
   ngtcp2_crypto_conn_ref *conn_ref();
 
-  void ticket_received();
-
 protected:
   ngtcp2_crypto_conn_ref conn_ref_;
   TLSClientSession tls_session_;
   FILE *qlog_;
   ngtcp2_conn *conn_;
   ngtcp2_ccerr last_error_;
-  bool ticket_received_;
 };
 
 void qlog_write_cb(void *user_data, uint32_t flags, const void *data,

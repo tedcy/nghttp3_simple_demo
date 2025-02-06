@@ -160,8 +160,6 @@ private:
   const char *port_;
   // nstreams_done_ is the number of streams opened.
   size_t nstreams_done_;
-  // nstreams_closed_ is the number of streams get closed.
-  size_t nstreams_closed_;
   // nkey_update_ is the number of key update occurred.
   size_t nkey_update_;
   uint32_t client_chosen_version_;

@@ -46,30 +46,6 @@ TLSClientContext::~TLSClientContext() {
 
 SSL_CTX *TLSClientContext::get_native_handle() const { return ssl_ctx_; }
 
-namespace {
-int new_session_cb(SSL *ssl, SSL_SESSION *session) {
-  auto conn_ref = static_cast<ngtcp2_crypto_conn_ref *>(SSL_get_app_data(ssl));
-  auto c = static_cast<ClientBase *>(conn_ref->user_data);
-
-  c->ticket_received();
-
-  auto f = BIO_new_file(config.session_file, "w");
-  if (f == nullptr) {
-    std::cerr << "Could not write TLS session in " << config.session_file
-              << std::endl;
-    return 0;
-  }
-
-  if (!PEM_write_bio_SSL_SESSION(f, session)) {
-    std::cerr << "Unable to write TLS session to file" << std::endl;
-  }
-
-  BIO_free(f);
-
-  return 0;
-}
-} // namespace
-
 int TLSClientContext::init(const char *private_key_file,
                            const char *cert_file) {
   ssl_ctx_ = SSL_CTX_new(TLS_client_method());
@@ -105,12 +81,6 @@ int TLSClientContext::init(const char *private_key_file,
                 << ERR_error_string(ERR_get_error(), nullptr) << std::endl;
       return -1;
     }
-  }
-
-  if (config.session_file) {
-    SSL_CTX_set_session_cache_mode(ssl_ctx_, SSL_SESS_CACHE_CLIENT |
-                                                 SSL_SESS_CACHE_NO_INTERNAL);
-    SSL_CTX_sess_set_new_cb(ssl_ctx_, new_session_cb);
   }
 
   return 0;

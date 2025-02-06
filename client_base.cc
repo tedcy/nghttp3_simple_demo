@@ -46,8 +46,7 @@ static ngtcp2_conn *get_conn(ngtcp2_crypto_conn_ref *conn_ref) {
 ClientBase::ClientBase()
     : conn_ref_{get_conn, this},
       qlog_(nullptr),
-      conn_(nullptr),
-      ticket_received_(false) {
+      conn_(nullptr) {
   ngtcp2_ccerr_default(&last_error_);
 }
 
@@ -203,5 +202,3 @@ void ClientBase::write_qlog(const void *data, size_t datalen) {
 }
 
 ngtcp2_crypto_conn_ref *ClientBase::conn_ref() { return &conn_ref_; }
-
-void ClientBase::ticket_received() { ticket_received_ = true; }
