@@ -50,6 +50,7 @@ struct Request {
 };
 
 struct Config {
+  std::vector<std::pair<std::string, std::string>> headers;
   // download is a path to a directory where a downloaded file is
   // saved.  If it is empty, no file is saved.
   std::string_view download;

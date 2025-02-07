@@ -1338,28 +1338,32 @@ int Client::submit_http_request(const Stream *stream) {
 
   const auto &req = stream->req;
 
-  std::array<nghttp3_nv, 6> nva{
+  std::vector<nghttp3_nv> nva{
       util::make_nv_nn(":method", config.http_method),
       util::make_nv_nn(":scheme", req.scheme),
       util::make_nv_nn(":authority", req.authority),
       util::make_nv_nn(":path", req.path),
       util::make_nv_nn("user-agent", "nghttp3/ngtcp2 client"),
   };
-  size_t nvlen = 5;
+
+  for (auto &[key, value] : config.headers) {
+    nva.push_back(util::make_nv_nn(key, value));
+  }
+  
   if (config.fd != -1) {
     content_length_str = util::format_uint(config.datalen);
-    nva[nvlen++] = util::make_nv_nc("content-length", content_length_str);
+    nva.push_back(util::make_nv_nc("content-length", content_length_str));
   }
 
   if (!config.quiet) {
-    debug::print_http_request_headers(stream->stream_id, nva.data(), nvlen);
+    debug::print_http_request_headers(stream->stream_id, nva.data(), nva.size());
   }
 
   nghttp3_data_reader dr{};
   dr.read_data = read_data;
 
   if (auto rv = nghttp3_conn_submit_request(
-          httpconn_, stream->stream_id, nva.data(), nvlen,
+          httpconn_, stream->stream_id, nva.data(), nva.size(),
           config.fd == -1 ? nullptr : &dr, nullptr);
       rv != 0) {
     std::cerr << "nghttp3_conn_submit_request: " << nghttp3_strerror(rv)
@@ -1886,6 +1890,7 @@ int main(int argc, char **argv) {
       {"data", required_argument, nullptr, 'd'},
       {"http-method", required_argument, nullptr, 'm'},
       {"download", required_argument, &flag, 1},
+      {"header", required_argument, &flag, 2},
       {nullptr, 0, nullptr, 0},
     };
 
@@ -1909,6 +1914,28 @@ int main(int argc, char **argv) {
         // --download
         config.download = optarg;
         break;
+      case 2:
+      {
+        // 添加用户指定的请求头
+        std::string header_line = optarg;
+        auto colon_pos = header_line.find(':');
+        if (colon_pos == std::string::npos) {
+            std::cerr << "Invalid header format: " << header_line
+                    << std::endl;
+            return -1;
+        }
+        auto name = header_line.substr(0, colon_pos);
+        auto value = header_line.substr(colon_pos + 1);
+        // 去除可能的空格
+        while (!value.empty() && (value[0] == ' ' || value[0] == '\t')) {
+            value.erase(0, 1);
+        }
+        // 将名称转换为小写
+        std::transform(name.begin(), name.end(), name.begin(),
+                   [](unsigned char c) { return std::tolower(c); });
+        config.headers.push_back({name, value});
+        break;
+      }
       default:
         break;
       }
