@@ -453,22 +453,22 @@ int Client::init(int fd, const Address &local_addr, const Address &remote_addr,
       ::recv_version_negotiation,
       ngtcp2_crypto_encrypt_cb,
       ngtcp2_crypto_decrypt_cb,
-      do_hp_mask,
+      ::do_hp_mask,
       ::recv_stream_data,
       ::acked_stream_data_offset,
       nullptr, // stream_open
-      stream_close,
+      ::stream_close,
       nullptr, // recv_stateless_reset
       ngtcp2_crypto_recv_retry_cb,
-      extend_max_streams_bidi,
+      ::extend_max_streams_bidi,
       nullptr, // extend_max_streams_uni
       rand,
-      get_new_connection_id,
+      ::get_new_connection_id,
       nullptr, // remove_connection_id
       ::update_key,
-      path_validation,
+      ::path_validation,
       ::select_preferred_address,
-      stream_reset,
+      ::stream_reset,
       nullptr, // extend_max_remote_streams_bidi,
       nullptr, // extend_max_remote_streams_uni,
       ::extend_max_stream_data,
@@ -481,7 +481,7 @@ int Client::init(int fd, const Address &local_addr, const Address &remote_addr,
       nullptr, // ack_datagram
       nullptr, // lost_datagram
       ngtcp2_crypto_get_path_challenge_data_cb,
-      stream_stop_sending,
+      ::stream_stop_sending,
       ngtcp2_crypto_version_negotiation_cb,
       ::recv_rx_key,
       nullptr, // recv_tx_key
@@ -1634,6 +1634,8 @@ void config_set_default(Config &config) {
   config.initial_rtt = NGTCP2_DEFAULT_INITIAL_RTT;
   config.handshake_timeout = UINT64_MAX;
   config.ack_thresh = 2;
+  config.no_quic_dump = true;
+  config.no_http_dump = true;
 }
 } // namespace
 
