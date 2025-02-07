@@ -5,7 +5,6 @@
 #include <algorithm>
 #include <memory>
 #include <fstream>
-#include <iomanip>
 
 #include <unistd.h>
 #include <getopt.h>
@@ -29,9 +28,7 @@ using namespace std::literals;
 
 namespace {
 auto randgen = util::make_mt19937();
-} // namespace
 
-namespace {
 constexpr size_t max_preferred_versionslen = 4;
 } // namespace
 
@@ -83,9 +80,7 @@ void writecb(struct ev_loop *loop, ev_io *w, int revents) {
 
   c->on_write();
 }
-} // namespace
 
-namespace {
 void readcb(struct ev_loop *loop, ev_io *w, int revents) {
   auto ep = static_cast<Endpoint *>(w->data);
   auto c = ep->client;
@@ -96,9 +91,7 @@ void readcb(struct ev_loop *loop, ev_io *w, int revents) {
 
   c->on_write();
 }
-} // namespace
 
-namespace {
 void timeoutcb(struct ev_loop *loop, ev_timer *w, int revents) {
   int rv;
   auto c = static_cast<Client *>(w->data);
@@ -110,9 +103,7 @@ void timeoutcb(struct ev_loop *loop, ev_timer *w, int revents) {
 
   c->on_write();
 }
-} // namespace
 
-namespace {
 void siginthandler(struct ev_loop *loop, ev_signal *w, int revents) {
   ev_break(loop, EVBREAK_ALL);
 }
@@ -176,9 +167,7 @@ int recv_crypto_data(ngtcp2_conn *conn, ngtcp2_crypto_level crypto_level,
   return ngtcp2_crypto_recv_crypto_data_cb(conn, crypto_level, offset, data,
                                            datalen, user_data);
 }
-} // namespace
 
-namespace {
 int recv_stream_data(ngtcp2_conn *conn, uint32_t flags, int64_t stream_id,
                      uint64_t offset, const uint8_t *data, size_t datalen,
                      void *user_data, void *stream_user_data) {
@@ -194,9 +183,7 @@ int recv_stream_data(ngtcp2_conn *conn, uint32_t flags, int64_t stream_id,
 
   return 0;
 }
-} // namespace
 
-namespace {
 int acked_stream_data_offset(ngtcp2_conn *conn, int64_t stream_id,
                              uint64_t offset, uint64_t datalen, void *user_data,
                              void *stream_user_data) {
@@ -206,9 +193,7 @@ int acked_stream_data_offset(ngtcp2_conn *conn, int64_t stream_id,
   }
   return 0;
 }
-} // namespace
 
-namespace {
 int handshake_completed(ngtcp2_conn *conn, void *user_data) {
   auto c = static_cast<Client *>(user_data);
 
@@ -289,9 +274,7 @@ int stream_close(ngtcp2_conn *conn, uint32_t flags, int64_t stream_id,
 
   return 0;
 }
-} // namespace
 
-namespace {
 int stream_reset(ngtcp2_conn *conn, int64_t stream_id, uint64_t final_size,
                  uint64_t app_error_code, void *user_data,
                  void *stream_user_data) {
@@ -303,9 +286,7 @@ int stream_reset(ngtcp2_conn *conn, int64_t stream_id, uint64_t final_size,
 
   return 0;
 }
-} // namespace
 
-namespace {
 int stream_stop_sending(ngtcp2_conn *conn, int64_t stream_id,
                         uint64_t app_error_code, void *user_data,
                         void *stream_user_data) {
@@ -317,9 +298,7 @@ int stream_stop_sending(ngtcp2_conn *conn, int64_t stream_id,
 
   return 0;
 }
-} // namespace
 
-namespace {
 int extend_max_streams_bidi(ngtcp2_conn *conn, uint64_t max_streams,
                             void *user_data) {
   auto c = static_cast<Client *>(user_data);
@@ -330,16 +309,12 @@ int extend_max_streams_bidi(ngtcp2_conn *conn, uint64_t max_streams,
 
   return 0;
 }
-} // namespace
 
-namespace {
 void rand(uint8_t *dest, size_t destlen, const ngtcp2_rand_ctx *rand_ctx) {
   auto dis = std::uniform_int_distribution<uint8_t>();
   std::generate(dest, dest + destlen, [&dis]() { return dis(randgen); });
 }
-} // namespace
 
-namespace {
 int get_new_connection_id(ngtcp2_conn *conn, ngtcp2_cid *cid, uint8_t *token,
                           size_t cidlen, void *user_data) {
   if (util::generate_secure_random(cid->data, cidlen) != 0) {
@@ -355,9 +330,7 @@ int get_new_connection_id(ngtcp2_conn *conn, ngtcp2_cid *cid, uint8_t *token,
 
   return 0;
 }
-} // namespace
 
-namespace {
 int do_hp_mask(uint8_t *dest, const ngtcp2_crypto_cipher *hp,
                const ngtcp2_crypto_cipher_ctx *hp_ctx, const uint8_t *sample) {
   if (ngtcp2_crypto_hp_mask(dest, hp, hp_ctx, sample) != 0) {
@@ -366,7 +339,6 @@ int do_hp_mask(uint8_t *dest, const ngtcp2_crypto_cipher *hp,
 
   return 0;
 }
-} // namespace
 
 int update_key(ngtcp2_conn *conn, uint8_t *rx_secret, uint8_t *tx_secret,
                ngtcp2_crypto_aead_ctx *rx_aead_ctx, uint8_t *rx_iv,
@@ -379,7 +351,6 @@ int update_key(ngtcp2_conn *conn, uint8_t *rx_secret, uint8_t *tx_secret,
 //return NGTCP2_ERR_CALLBACK_FAILURE;
 }
 
-namespace {
 int path_validation(ngtcp2_conn *conn, uint32_t flags, const ngtcp2_path *path,
                     const ngtcp2_path *old_path,
                     ngtcp2_path_validation_result res, void *user_data) {
@@ -402,6 +373,7 @@ void Client::set_remote_addr(const ngtcp2_addr &remote_addr) {
   remote_addr_.len = remote_addr.addrlen;
 }
 
+namespace {
 int select_preferred_address(ngtcp2_conn *conn, ngtcp2_path *dest,
                              const ngtcp2_preferred_addr *paddr,
                              void *user_data) {
@@ -409,7 +381,6 @@ int select_preferred_address(ngtcp2_conn *conn, ngtcp2_path *dest,
   return 0;
 }
 
-namespace {
 int extend_max_stream_data(ngtcp2_conn *conn, int64_t stream_id,
                            uint64_t max_data, void *user_data,
                            void *stream_user_data) {
@@ -448,7 +419,6 @@ int recv_rx_key(ngtcp2_conn *conn, ngtcp2_crypto_level level, void *user_data) {
 
   return 0;
 }
-} // namespace
 
 int early_data_rejected(ngtcp2_conn *conn, void *user_data) {
   abort();
@@ -456,6 +426,7 @@ int early_data_rejected(ngtcp2_conn *conn, void *user_data) {
 
   return 0;
 }
+} // namespace
 
 int Client::init(int fd, const Address &local_addr, const Address &remote_addr,
                  const char *addr, const char *port,
@@ -861,7 +832,6 @@ void Client::update_timer() {
   ev_timer_again(loop_, &timer_);
 }
 
-#ifdef HAVE_LINUX_RTNETLINK_H
 namespace {
 int bind_addr(Address &local_addr, int fd, const in_addr_union *iau,
               int family) {
@@ -914,31 +884,7 @@ int bind_addr(Address &local_addr, int fd, const in_addr_union *iau,
 
   return 0;
 }
-} // namespace
-#endif // HAVE_LINUX_RTNETLINK_H
 
-#ifndef HAVE_LINUX_RTNETLINK_H
-namespace {
-int connect_sock(Address &local_addr, int fd, const Address &remote_addr) {
-  if (connect(fd, &remote_addr.su.sa, remote_addr.len) != 0) {
-    std::cerr << "connect: " << strerror(errno) << std::endl;
-    return -1;
-  }
-
-  socklen_t len = sizeof(local_addr.su.storage);
-  if (getsockname(fd, &local_addr.su.sa, &len) == -1) {
-    std::cerr << "getsockname: " << strerror(errno) << std::endl;
-    return -1;
-  }
-  local_addr.len = len;
-  local_addr.ifindex = 0;
-
-  return 0;
-}
-} // namespace
-#endif // !HAVE_LINUX_RTNETLINK_H
-
-namespace {
 int udp_sock(int family) {
   auto fd = util::create_nonblock_socket(family, SOCK_DGRAM, IPPROTO_UDP);
   if (fd == -1) {
@@ -951,9 +897,7 @@ int udp_sock(int family) {
 
   return fd;
 }
-} // namespace
 
-namespace {
 int create_sock(Address &remote_addr, const char *addr, const char *port) {
   addrinfo hints{};
   addrinfo *res, *rp;
@@ -991,55 +935,6 @@ int create_sock(Address &remote_addr, const char *addr, const char *port) {
 }
 } // namespace
 
-std::optional<Endpoint *> Client::endpoint_for(const Address &remote_addr) {
-#ifdef HAVE_LINUX_RTNETLINK_H
-  in_addr_union iau;
-
-  if (get_local_addr(iau, remote_addr) != 0) {
-    std::cerr << "Could not get local address for a selected preferred address"
-              << std::endl;
-    return nullptr;
-  }
-
-  auto current_path = ngtcp2_conn_get_path(conn_);
-  auto current_ep = static_cast<Endpoint *>(current_path->user_data);
-  if (addreq(&current_ep->addr.su.sa, iau)) {
-    return current_ep;
-  }
-#endif // HAVE_LINUX_RTNETLINK_H
-
-  auto fd = udp_sock(remote_addr.su.sa.sa_family);
-  if (fd == -1) {
-    return nullptr;
-  }
-
-  Address local_addr;
-
-#ifdef HAVE_LINUX_RTNETLINK_H
-  if (bind_addr(local_addr, fd, &iau, remote_addr.su.sa.sa_family) != 0) {
-    close(fd);
-    return nullptr;
-  }
-#else  // !HAVE_LINUX_RTNETLINK_H
-  if (connect_sock(local_addr, fd, remote_addr) != 0) {
-    close(fd);
-    return nullptr;
-  }
-#endif // !HAVE_LINUX_RTNETLINK_H
-
-  endpoints_.emplace_back();
-  auto &ep = endpoints_.back();
-  ep.addr = local_addr;
-  ep.client = this;
-  ep.fd = fd;
-  ev_io_init(&ep.rev, readcb, fd, EV_READ);
-  ep.rev.data = &ep;
-
-  ev_io_start(loop_, &ep.rev);
-
-  return &ep;
-}
-
 int Client::send_packet(const Endpoint &ep, const ngtcp2_addr &remote_addr,
                         unsigned int ecn, const uint8_t *data, size_t datalen) {
   iovec msg_iov;
@@ -1047,10 +942,8 @@ int Client::send_packet(const Endpoint &ep, const ngtcp2_addr &remote_addr,
   msg_iov.iov_len = datalen;
 
   msghdr msg{};
-#ifdef HAVE_LINUX_RTNETLINK_H
   msg.msg_name = const_cast<sockaddr *>(remote_addr.addr);
   msg.msg_namelen = remote_addr.addrlen;
-#endif // HAVE_LINUX_RTNETLINK_H
   msg.msg_iov = &msg_iov;
   msg.msg_iovlen = 1;
 
@@ -1231,14 +1124,6 @@ int Client::on_stream_stop_sending(int64_t stream_id) {
   return 0;
 }
 
-int Client::make_stream_early() {
-  if (setup_httpconn() != 0) {
-    return -1;
-  }
-
-  return on_extend_max_streams();
-}
-
 int Client::on_extend_max_streams() {
   int64_t stream_id;
 
@@ -1359,9 +1244,7 @@ int http_recv_data(nghttp3_conn *conn, int64_t stream_id, const uint8_t *data,
   c->http_write_data(stream_id, data, datalen);
   return 0;
 }
-} // namespace
 
-namespace {
 int http_deferred_consume(nghttp3_conn *conn, int64_t stream_id,
                           size_t nconsumed, void *user_data,
                           void *stream_user_data) {
@@ -1403,9 +1286,7 @@ int http_begin_headers(nghttp3_conn *conn, int64_t stream_id, void *user_data,
   }
   return 0;
 }
-} // namespace
 
-namespace {
 int http_recv_header(nghttp3_conn *conn, int64_t stream_id, int32_t token,
                      nghttp3_rcbuf *name, nghttp3_rcbuf *value, uint8_t flags,
                      void *user_data, void *stream_user_data) {
@@ -1424,9 +1305,7 @@ int http_end_headers(nghttp3_conn *conn, int64_t stream_id, int fin,
   }
   return 0;
 }
-} // namespace
 
-namespace {
 int http_begin_trailers(nghttp3_conn *conn, int64_t stream_id, void *user_data,
                         void *stream_user_data) {
   if (!config.quiet) {
@@ -1434,9 +1313,7 @@ int http_begin_trailers(nghttp3_conn *conn, int64_t stream_id, void *user_data,
   }
   return 0;
 }
-} // namespace
 
-namespace {
 int http_recv_trailer(nghttp3_conn *conn, int64_t stream_id, int32_t token,
                       nghttp3_rcbuf *name, nghttp3_rcbuf *value, uint8_t flags,
                       void *user_data, void *stream_user_data) {
@@ -1445,9 +1322,7 @@ int http_recv_trailer(nghttp3_conn *conn, int64_t stream_id, int32_t token,
   }
   return 0;
 }
-} // namespace
 
-namespace {
 int http_end_trailers(nghttp3_conn *conn, int64_t stream_id, int fin,
                       void *user_data, void *stream_user_data) {
   if (!config.quiet) {
@@ -1455,9 +1330,7 @@ int http_end_trailers(nghttp3_conn *conn, int64_t stream_id, int fin,
   }
   return 0;
 }
-} // namespace
 
-namespace {
 int http_stop_sending(nghttp3_conn *conn, int64_t stream_id,
                       uint64_t app_error_code, void *user_data,
                       void *stream_user_data) {
@@ -1634,10 +1507,6 @@ int Client::setup_httpconn() {
   return 0;
 }
 
-const std::vector<uint32_t> &Client::get_offered_versions() const {
-  return offered_versions_;
-}
-
 namespace {
 int run(Client &c, const char *addr, const char *port,
         TLSClientContext &tls_ctx) {
@@ -1681,17 +1550,13 @@ int run(Client &c, const char *addr, const char *port,
 
   return 0;
 }
-} // namespace
 
-namespace {
 std::string_view get_string(const char *uri, const http_parser_url &u,
                             http_parser_url_fields f) {
   auto p = &u.field_data[f];
   return {uri + p->off, p->len};
 }
-} // namespace
 
-namespace {
 int parse_uri(Request &req, const char *uri) {
   http_parser_url u;
 
@@ -1728,9 +1593,7 @@ int parse_uri(Request &req, const char *uri) {
 
   return 0;
 }
-} // namespace
 
-namespace {
 int parse_requests(char **argv, size_t argvlen) {
   for (size_t i = 0; i < argvlen; ++i) {
     auto uri = argv[i];

@@ -96,12 +96,9 @@ public:
   int on_stream_close(int64_t stream_id, uint64_t app_error_code);
   int on_extend_max_streams();
   int handle_error();
-  int make_stream_early();
 
   int select_preferred_address(Address &selected_addr,
                                const ngtcp2_preferred_addr *paddr);
-
-  std::optional<Endpoint *> endpoint_for(const Address &remote_addr);
 
   void set_remote_addr(const ngtcp2_addr &remote_addr);
 
@@ -123,8 +120,6 @@ public:
                        unsigned int ecn, size_t datalen);
   void start_wev_endpoint(const Endpoint &ep);
   int send_blocked_packet();
-
-  const std::vector<uint32_t> &get_offered_versions() const;
 
 private:
   std::vector<Endpoint> endpoints_;
