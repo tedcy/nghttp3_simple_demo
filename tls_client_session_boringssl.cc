@@ -78,30 +78,6 @@ int TLSClientSession::init(bool &early_data_enabled,
     SSL_set_tlsext_host_name(ssl_, remote_addr);
   }
 
-  if (config.session_file) {
-    auto f = BIO_new_file(config.session_file, "r");
-    if (f == nullptr) {
-      std::cerr << "Could not read TLS session file " << config.session_file
-                << std::endl;
-    } else {
-      auto session = PEM_read_bio_SSL_SESSION(f, nullptr, 0, nullptr);
-      BIO_free(f);
-      if (session == nullptr) {
-        std::cerr << "Could not read TLS session file " << config.session_file
-                  << std::endl;
-      } else {
-        if (!SSL_set_session(ssl_, session)) {
-          std::cerr << "Could not set session" << std::endl;
-        } else if (!config.disable_early_data &&
-                   SSL_SESSION_early_data_capable(session)) {
-          early_data_enabled = true;
-          SSL_set_early_data_enabled(ssl_, 1);
-        }
-        SSL_SESSION_free(session);
-      }
-    }
-  }
-
   return 0;
 }
 

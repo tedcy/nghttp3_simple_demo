@@ -80,15 +80,6 @@ struct Config {
   const char *tp_file;
   // show_secret is true if transport secrets should be printed out.
   bool show_secret;
-  // change_local_addr is the duration after which client changes
-  // local address.
-  ngtcp2_duration change_local_addr;
-  // key_update is the duration after which client initiates key
-  // update.
-  ngtcp2_duration key_update;
-  // delay_stream is the duration after which client sends the first
-  // 1-RTT stream.
-  ngtcp2_duration delay_stream;
   // nat_rebinding is true if simulated NAT rebinding is enabled.
   bool nat_rebinding;
   // no_preferred_addr is true if client do not follow preferred

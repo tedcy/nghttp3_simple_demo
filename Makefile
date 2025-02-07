@@ -1,6 +1,6 @@
 # 设置编译器
 CXX = g++
-CXXFLAGS = -std=c++20 -DHAVE_CONFIG_H -DWITH_EXAMPLE_BORINGSSL -g -O2
+CXXFLAGS = -std=c++20 -DHAVE_CONFIG_H -DWITH_EXAMPLE_BORINGSSL -g -O2 -Wunused-function
 INCLUDES = -I. -I/root/http3/ngtcp2 -I/root/http3/ngtcp2/lib/includes -I/root/http3/ngtcp2/crypto/includes -I/root/http3/ngtcp2/third-party \
            -I/root/http3/ngtcp2/../libev/build/include \
            -I/root/http3/nghttp3/build/include \

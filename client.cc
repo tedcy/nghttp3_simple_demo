@@ -82,34 +82,6 @@ void timeoutcb(struct ev_loop *loop, ev_timer *w, int revents) {
 } // namespace
 
 namespace {
-void change_local_addrcb(struct ev_loop *loop, ev_timer *w, int revents) {
-  auto c = static_cast<Client *>(w->data);
-
-  c->change_local_addr();
-}
-} // namespace
-
-namespace {
-void key_updatecb(struct ev_loop *loop, ev_timer *w, int revents) {
-  auto c = static_cast<Client *>(w->data);
-
-  if (c->initiate_key_update() != 0) {
-    c->disconnect();
-  }
-}
-} // namespace
-
-namespace {
-void delay_streamcb(struct ev_loop *loop, ev_timer *w, int revents) {
-  auto c = static_cast<Client *>(w->data);
-
-  ev_timer_stop(loop, w);
-  c->on_extend_max_streams();
-  c->on_write();
-}
-} // namespace
-
-namespace {
 void siginthandler(struct ev_loop *loop, ev_signal *w, int revents) {
   ev_break(loop, EVBREAK_ALL);
 }
@@ -123,7 +95,6 @@ Client::Client(struct ev_loop *loop, uint32_t client_chosen_version,
       addr_(nullptr),
       port_(nullptr),
       nstreams_done_(0),
-      nkey_update_(0),
       client_chosen_version_(client_chosen_version),
       original_version_(original_version),
       early_data_(false),
@@ -133,16 +104,6 @@ Client::Client(struct ev_loop *loop, uint32_t client_chosen_version,
   wev_.data = this;
   ev_timer_init(&timer_, timeoutcb, 0., 0.);
   timer_.data = this;
-  ev_timer_init(&change_local_addr_timer_, change_local_addrcb,
-                static_cast<double>(config.change_local_addr) / NGTCP2_SECONDS,
-                0.);
-  change_local_addr_timer_.data = this;
-  ev_timer_init(&key_update_timer_, key_updatecb,
-                static_cast<double>(config.key_update) / NGTCP2_SECONDS, 0.);
-  key_update_timer_.data = this;
-  ev_timer_init(&delay_stream_timer_, delay_streamcb,
-                static_cast<double>(config.delay_stream) / NGTCP2_SECONDS, 0.);
-  delay_stream_timer_.data = this;
   ev_signal_init(&sigintev_, siginthandler, SIGINT);
 }
 
@@ -162,9 +123,6 @@ void Client::disconnect() {
 
   config.tx_loss_prob = 0;
 
-  ev_timer_stop(loop_, &delay_stream_timer_);
-  ev_timer_stop(loop_, &key_update_timer_);
-  ev_timer_stop(loop_, &change_local_addr_timer_);
   ev_timer_stop(loop_, &timer_);
 
   ev_io_stop(loop_, &wev_);
@@ -302,16 +260,6 @@ int handshake_confirmed(ngtcp2_conn *conn, void *user_data) {
 int Client::handshake_confirmed() {
   handshake_confirmed_ = true;
 
-  if (config.change_local_addr) {
-    start_change_local_addr_timer();
-  }
-  if (config.key_update) {
-    start_key_update_timer();
-  }
-  if (config.delay_stream) {
-    start_delay_stream_timer();
-  }
-
   return 0;
 }
 
@@ -430,7 +378,6 @@ int do_hp_mask(uint8_t *dest, const ngtcp2_crypto_cipher *hp,
 }
 } // namespace
 
-namespace {
 int update_key(ngtcp2_conn *conn, uint8_t *rx_secret, uint8_t *tx_secret,
                ngtcp2_crypto_aead_ctx *rx_aead_ctx, uint8_t *rx_iv,
                ngtcp2_crypto_aead_ctx *tx_aead_ctx, uint8_t *tx_iv,
@@ -438,16 +385,9 @@ int update_key(ngtcp2_conn *conn, uint8_t *rx_secret, uint8_t *tx_secret,
                const uint8_t *current_tx_secret, size_t secretlen,
                void *user_data) {
   auto c = static_cast<Client *>(user_data);
-
-  if (c->update_key(rx_secret, tx_secret, rx_aead_ctx, rx_iv, tx_aead_ctx,
-                    tx_iv, current_rx_secret, current_tx_secret,
-                    secretlen) != 0) {
-    return NGTCP2_ERR_CALLBACK_FAILURE;
-  }
-
   return 0;
+//return NGTCP2_ERR_CALLBACK_FAILURE;
 }
-} // namespace
 
 namespace {
 int path_validation(ngtcp2_conn *conn, uint32_t flags, const ngtcp2_path *path,
@@ -1206,143 +1146,6 @@ std::optional<Endpoint *> Client::endpoint_for(const Address &remote_addr) {
   return &ep;
 }
 
-void Client::start_change_local_addr_timer() {
-  ev_timer_start(loop_, &change_local_addr_timer_);
-}
-
-int Client::change_local_addr() {
-  Address local_addr;
-
-  if (!config.quiet) {
-    std::cerr << "Changing local address" << std::endl;
-  }
-
-  auto nfd = udp_sock(remote_addr_.su.sa.sa_family);
-  if (nfd == -1) {
-    return -1;
-  }
-
-#ifdef HAVE_LINUX_RTNETLINK_H
-  in_addr_union iau;
-
-  if (get_local_addr(iau, remote_addr_) != 0) {
-    std::cerr << "Could not get local address" << std::endl;
-    close(nfd);
-    return -1;
-  }
-
-  if (bind_addr(local_addr, nfd, &iau, remote_addr_.su.sa.sa_family) != 0) {
-    close(nfd);
-    return -1;
-  }
-#else  // !HAVE_LINUX_RTNETLINK_H
-  if (connect_sock(local_addr, nfd, remote_addr_) != 0) {
-    close(nfd);
-    return -1;
-  }
-#endif // !HAVE_LINUX_RTNETLINK_H
-
-  if (!config.quiet) {
-    std::cerr << "Local address is now "
-              << util::straddr(&local_addr.su.sa, local_addr.len) << std::endl;
-  }
-
-  endpoints_.emplace_back();
-  auto &ep = endpoints_.back();
-  ep.addr = local_addr;
-  ep.client = this;
-  ep.fd = nfd;
-  ev_io_init(&ep.rev, readcb, nfd, EV_READ);
-  ep.rev.data = &ep;
-
-  ngtcp2_addr addr;
-  ngtcp2_addr_init(&addr, &local_addr.su.sa, local_addr.len);
-
-  if (config.nat_rebinding) {
-    ngtcp2_conn_set_local_addr(conn_, &addr);
-    ngtcp2_conn_set_path_user_data(conn_, &ep);
-  } else {
-    auto path = ngtcp2_path{
-        addr,
-        {
-            const_cast<sockaddr *>(&remote_addr_.su.sa),
-            remote_addr_.len,
-        },
-        &ep,
-    };
-    if (auto rv = ngtcp2_conn_initiate_immediate_migration(
-            conn_, &path, util::timestamp(loop_));
-        rv != 0) {
-      std::cerr << "ngtcp2_conn_initiate_immediate_migration: "
-                << ngtcp2_strerror(rv) << std::endl;
-    }
-  }
-
-  ev_io_start(loop_, &ep.rev);
-
-  return 0;
-}
-
-void Client::start_key_update_timer() {
-  ev_timer_start(loop_, &key_update_timer_);
-}
-
-int Client::update_key(uint8_t *rx_secret, uint8_t *tx_secret,
-                       ngtcp2_crypto_aead_ctx *rx_aead_ctx, uint8_t *rx_iv,
-                       ngtcp2_crypto_aead_ctx *tx_aead_ctx, uint8_t *tx_iv,
-                       const uint8_t *current_rx_secret,
-                       const uint8_t *current_tx_secret, size_t secretlen) {
-  if (!config.quiet) {
-    std::cerr << "Updating traffic key" << std::endl;
-  }
-
-  auto crypto_ctx = ngtcp2_conn_get_crypto_ctx(conn_);
-  auto aead = &crypto_ctx->aead;
-  auto keylen = ngtcp2_crypto_aead_keylen(aead);
-  auto ivlen = ngtcp2_crypto_packet_protection_ivlen(aead);
-
-  ++nkey_update_;
-
-  std::array<uint8_t, 64> rx_key, tx_key;
-
-  if (ngtcp2_crypto_update_key(conn_, rx_secret, tx_secret, rx_aead_ctx,
-                               rx_key.data(), rx_iv, tx_aead_ctx, tx_key.data(),
-                               tx_iv, current_rx_secret, current_tx_secret,
-                               secretlen) != 0) {
-    return -1;
-  }
-
-  if (!config.quiet && config.show_secret) {
-    std::cerr << "application_traffic rx secret " << nkey_update_ << std::endl;
-    debug::print_secrets(rx_secret, secretlen, rx_key.data(), keylen, rx_iv,
-                         ivlen);
-    std::cerr << "application_traffic tx secret " << nkey_update_ << std::endl;
-    debug::print_secrets(tx_secret, secretlen, tx_key.data(), keylen, tx_iv,
-                         ivlen);
-  }
-
-  return 0;
-}
-
-int Client::initiate_key_update() {
-  if (!config.quiet) {
-    std::cerr << "Initiate key update" << std::endl;
-  }
-
-  if (auto rv = ngtcp2_conn_initiate_key_update(conn_, util::timestamp(loop_));
-      rv != 0) {
-    std::cerr << "ngtcp2_conn_initiate_key_update: " << ngtcp2_strerror(rv)
-              << std::endl;
-    return -1;
-  }
-
-  return 0;
-}
-
-void Client::start_delay_stream_timer() {
-  ev_timer_start(loop_, &delay_stream_timer_);
-}
-
 int Client::send_packet(const Endpoint &ep, const ngtcp2_addr &remote_addr,
                         unsigned int ecn, const uint8_t *data, size_t datalen) {
   if (debug::packet_lost(config.tx_loss_prob)) {
@@ -1551,11 +1354,6 @@ int Client::make_stream_early() {
 
 int Client::on_extend_max_streams() {
   int64_t stream_id;
-
-  if ((config.delay_stream && !handshake_confirmed_) ||
-      ev_is_active(&delay_stream_timer_)) {
-    return 0;
-  }
 
   for (; nstreams_done_ < config.nstreams; ++nstreams_done_) {
     if (auto rv = ngtcp2_conn_open_bidi_stream(conn_, &stream_id, nullptr);

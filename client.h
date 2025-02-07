@@ -95,15 +95,6 @@ public:
   int on_extend_max_streams();
   int handle_error();
   int make_stream_early();
-  int change_local_addr();
-  void start_change_local_addr_timer();
-  int update_key(uint8_t *rx_secret, uint8_t *tx_secret,
-                 ngtcp2_crypto_aead_ctx *rx_aead_ctx, uint8_t *rx_iv,
-                 ngtcp2_crypto_aead_ctx *tx_aead_ctx, uint8_t *tx_iv,
-                 const uint8_t *current_rx_secret,
-                 const uint8_t *current_tx_secret, size_t secretlen);
-  int initiate_key_update();
-  void start_key_update_timer();
   void start_delay_stream_timer();
 
   int select_preferred_address(Address &selected_addr,
@@ -142,9 +133,6 @@ private:
   Address remote_addr_;
   ev_io wev_;
   ev_timer timer_;
-  ev_timer change_local_addr_timer_;
-  ev_timer key_update_timer_;
-  ev_timer delay_stream_timer_;
   ev_signal sigintev_;
   struct ev_loop *loop_;
   std::map<int64_t, std::unique_ptr<Stream>> streams_;
@@ -156,8 +144,6 @@ private:
   const char *port_;
   // nstreams_done_ is the number of streams opened.
   size_t nstreams_done_;
-  // nkey_update_ is the number of key update occurred.
-  size_t nkey_update_;
   uint32_t client_chosen_version_;
   uint32_t original_version_;
   // early_data_ is true if client attempts to do 0RTT data transfer.
