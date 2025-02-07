@@ -53,10 +53,6 @@ struct Config {
   ngtcp2_cid dcid;
   ngtcp2_cid scid;
   bool scid_present;
-  // tx_loss_prob is probability of losing outgoing packet.
-  double tx_loss_prob;
-  // rx_loss_prob is probability of losing incoming packet.
-  double rx_loss_prob;
   // fd is a file descriptor to read input for streams.
   int fd;
   // ciphers is the list of enabled ciphers.
@@ -75,9 +71,6 @@ struct Config {
   bool quiet;
   // timeout is an idle timeout for QUIC connection.
   ngtcp2_duration timeout;
-  // tp_file is a path to a file to write, and read QUIC transport
-  // parameters.
-  const char *tp_file;
   // show_secret is true if transport secrets should be printed out.
   bool show_secret;
   // nat_rebinding is true if simulated NAT rebinding is enabled.

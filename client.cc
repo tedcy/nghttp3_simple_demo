@@ -121,8 +121,6 @@ void Client::disconnect() {
 
   handle_error();
 
-  config.tx_loss_prob = 0;
-
   ev_timer_stop(loop_, &timer_);
 
   ev_io_stop(loop_, &wev_);
@@ -222,20 +220,6 @@ int Client::handshake_completed() {
               << std::endl;
     std::cerr << "Negotiated ALPN is " << tls_session_.get_selected_alpn()
               << std::endl;
-  }
-
-  if (config.tp_file) {
-    std::array<uint8_t, 256> data;
-    auto datalen = ngtcp2_conn_encode_early_transport_params(conn_, data.data(),
-                                                             data.size());
-    if (datalen < 0) {
-      std::cerr << "Could not encode early transport parameters: "
-                << ngtcp2_strerror(datalen) << std::endl;
-    } else if (util::write_transport_params(config.tp_file, data.data(),
-                                            datalen) != 0) {
-      std::cerr << "Could not write transport parameters in " << config.tp_file
-                << std::endl;
-    }
   }
 
   return 0;
@@ -668,24 +652,6 @@ int Client::init(int fd, const Address &local_addr, const Address &remote_addr,
 
   ngtcp2_conn_set_tls_native_handle(conn_, tls_session_.get_native_handle());
 
-  if (early_data_ && config.tp_file) {
-    auto params = util::read_transport_params(config.tp_file);
-    if (!params) {
-      early_data_ = false;
-    } else {
-      auto rv = ngtcp2_conn_decode_early_transport_params(
-          conn_, reinterpret_cast<const uint8_t *>(params->data()),
-          params->size());
-      if (rv != 0) {
-        std::cerr << "ngtcp2_conn_decode_early_transport_params: "
-                  << ngtcp2_strerror(rv) << std::endl;
-        early_data_ = false;
-      } else if (make_stream_early() != 0) {
-        return -1;
-      }
-    }
-  }
-
   ev_io_start(loop_, &ep.rev);
 
   ev_signal_start(loop_, &sigintev_);
@@ -764,13 +730,6 @@ int Client::on_read(const Endpoint &ep) {
                 << " remote=" << util::straddr(&su.sa, msg.msg_namelen)
                 << " ecn=0x" << std::hex << pi.ecn << std::dec << " " << nread
                 << " bytes" << std::endl;
-    }
-
-    if (debug::packet_lost(config.rx_loss_prob)) {
-      if (!config.quiet) {
-        std::cerr << "** Simulated incoming packet loss **" << std::endl;
-      }
-      break;
     }
 
     if (feed_data(ep, &su.sa, msg.msg_namelen, &pi, buf.data(), nread) != 0) {
@@ -1148,13 +1107,6 @@ std::optional<Endpoint *> Client::endpoint_for(const Address &remote_addr) {
 
 int Client::send_packet(const Endpoint &ep, const ngtcp2_addr &remote_addr,
                         unsigned int ecn, const uint8_t *data, size_t datalen) {
-  if (debug::packet_lost(config.tx_loss_prob)) {
-    if (!config.quiet) {
-      std::cerr << "** Simulated outgoing packet loss **" << std::endl;
-    }
-    return NETWORK_ERR_OK;
-  }
-
   iovec msg_iov;
   msg_iov.iov_base = const_cast<uint8_t *>(data);
   msg_iov.iov_len = datalen;
@@ -1908,8 +1860,6 @@ void print_usage() {
 namespace {
 void config_set_default(Config &config) {
   config = Config{};
-  config.tx_loss_prob = 0.;
-  config.rx_loss_prob = 0.;
   config.fd = -1;
   config.ciphers = util::crypto_default_ciphers();
   config.groups = util::crypto_default_groups();

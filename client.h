@@ -95,7 +95,6 @@ public:
   int on_extend_max_streams();
   int handle_error();
   int make_stream_early();
-  void start_delay_stream_timer();
 
   int select_preferred_address(Address &selected_addr,
                                const ngtcp2_preferred_addr *paddr);
