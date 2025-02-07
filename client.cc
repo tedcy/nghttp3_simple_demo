@@ -1517,7 +1517,6 @@ int run(Client &c, const char *addr, const char *port,
     return -1;
   }
 
-#ifdef HAVE_LINUX_RTNETLINK_H
   in_addr_union iau;
 
   if (get_local_addr(iau, remote_addr) != 0) {
@@ -1530,12 +1529,6 @@ int run(Client &c, const char *addr, const char *port,
     close(fd);
     return -1;
   }
-#else  // !HAVE_LINUX_RTNETLINK_H
-  if (connect_sock(local_addr, fd, remote_addr) != 0) {
-    close(fd);
-    return -1;
-  }
-#endif // !HAVE_LINUX_RTNETLINK_H
 
   if (c.init(fd, local_addr, remote_addr, addr, port, tls_ctx) != 0) {
     return -1;
