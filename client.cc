@@ -364,10 +364,6 @@ int do_hp_mask(uint8_t *dest, const ngtcp2_crypto_cipher *hp,
     return NGTCP2_ERR_CALLBACK_FAILURE;
   }
 
-  if (!config.quiet && config.show_secret) {
-    debug::print_hp_mask(dest, NGTCP2_HP_MASKLEN, sample, NGTCP2_HP_SAMPLELEN);
-  }
-
   return 0;
 }
 } // namespace
@@ -406,33 +402,12 @@ void Client::set_remote_addr(const ngtcp2_addr &remote_addr) {
   remote_addr_.len = remote_addr.addrlen;
 }
 
-namespace {
 int select_preferred_address(ngtcp2_conn *conn, ngtcp2_path *dest,
                              const ngtcp2_preferred_addr *paddr,
                              void *user_data) {
   auto c = static_cast<Client *>(user_data);
-  Address remote_addr;
-
-  if (config.no_preferred_addr) {
-    return 0;
-  }
-
-  if (c->select_preferred_address(remote_addr, paddr) != 0) {
-    return 0;
-  }
-
-  auto ep = c->endpoint_for(remote_addr);
-  if (!ep) {
-    return NGTCP2_ERR_CALLBACK_FAILURE;
-  }
-
-  ngtcp2_addr_copy_byte(&dest->local, &(*ep)->addr.su.sa, (*ep)->addr.len);
-  ngtcp2_addr_copy_byte(&dest->remote, &remote_addr.su.sa, remote_addr.len);
-  dest->user_data = *ep;
-
   return 0;
 }
-} // namespace
 
 namespace {
 int extend_max_stream_data(ngtcp2_conn *conn, int64_t stream_id,
@@ -1399,46 +1374,6 @@ int Client::acked_stream_data_offset(int64_t stream_id, uint64_t datalen) {
     std::cerr << "nghttp3_conn_add_ack_offset: " << nghttp3_strerror(rv)
               << std::endl;
     return -1;
-  }
-
-  return 0;
-}
-
-int Client::select_preferred_address(Address &selected_addr,
-                                     const ngtcp2_preferred_addr *paddr) {
-  auto path = ngtcp2_conn_get_path(conn_);
-
-  switch (path->local.addr->sa_family) {
-  case AF_INET:
-    if (!paddr->ipv4_present) {
-      return -1;
-    }
-    selected_addr.su.in = paddr->ipv4;
-    selected_addr.len = sizeof(paddr->ipv4);
-    break;
-  case AF_INET6:
-    if (!paddr->ipv6_present) {
-      return -1;
-    }
-    selected_addr.su.in6 = paddr->ipv6;
-    selected_addr.len = sizeof(paddr->ipv6);
-    break;
-  default:
-    return -1;
-  }
-
-  char host[NI_MAXHOST], service[NI_MAXSERV];
-  if (auto rv = getnameinfo(&selected_addr.su.sa, selected_addr.len, host,
-                            sizeof(host), service, sizeof(service),
-                            NI_NUMERICHOST | NI_NUMERICSERV);
-      rv != 0) {
-    std::cerr << "getnameinfo: " << gai_strerror(rv) << std::endl;
-    return -1;
-  }
-
-  if (!config.quiet) {
-    std::cerr << "selected server preferred_address is [" << host
-              << "]:" << service << std::endl;
   }
 
   return 0;

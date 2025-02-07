@@ -70,13 +70,6 @@ struct Config {
   bool quiet;
   // timeout is an idle timeout for QUIC connection.
   ngtcp2_duration timeout;
-  // show_secret is true if transport secrets should be printed out.
-  bool show_secret;
-  // nat_rebinding is true if simulated NAT rebinding is enabled.
-  bool nat_rebinding;
-  // no_preferred_addr is true if client do not follow preferred
-  // address offered by server.
-  bool no_preferred_addr;
   std::string_view http_method;
   // requests contains URIs to request.
   std::vector<Request> requests;
