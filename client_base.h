@@ -50,9 +50,6 @@ struct Request {
 };
 
 struct Config {
-  ngtcp2_cid dcid;
-  ngtcp2_cid scid;
-  bool scid_present;
   // fd is a file descriptor to read input for streams.
   int fd;
   // ciphers is the list of enabled ciphers.

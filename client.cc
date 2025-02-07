@@ -520,23 +520,15 @@ int Client::init(int fd, const Address &local_addr, const Address &remote_addr,
   };
 
   ngtcp2_cid scid, dcid;
-  if (config.scid_present) {
-    scid = config.scid;
-  } else {
-    scid.datalen = 17;
-    if (util::generate_secure_random(scid.data, scid.datalen) != 0) {
+  scid.datalen = 17;
+  if (util::generate_secure_random(scid.data, scid.datalen) != 0) {
       std::cerr << "Could not generate source connection ID" << std::endl;
       return -1;
-    }
   }
-  if (config.dcid.datalen == 0) {
-    dcid.datalen = 18;
-    if (util::generate_secure_random(dcid.data, dcid.datalen) != 0) {
+  dcid.datalen = 18;
+  if (util::generate_secure_random(dcid.data, dcid.datalen) != 0) {
       std::cerr << "Could not generate destination connection ID" << std::endl;
       return -1;
-    }
-  } else {
-    dcid = config.dcid;
   }
 
   ngtcp2_settings settings;
