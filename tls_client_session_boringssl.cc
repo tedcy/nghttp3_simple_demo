@@ -65,9 +65,7 @@ int TLSClientSession::init(const TLSClientContext &tls_ctx,
     break;
   }
 
-  if (!config.sni.empty()) {
-    SSL_set_tlsext_host_name(ssl_, config.sni.data());
-  } else if (util::numeric_host(remote_addr)) {
+  if (util::numeric_host(remote_addr)) {
     // If remote host is numeric address, just send "localhost" as SNI
     // for now.
     SSL_set_tlsext_host_name(ssl_, "localhost");

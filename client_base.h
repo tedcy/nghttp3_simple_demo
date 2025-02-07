@@ -56,8 +56,6 @@ struct Config {
   std::string_view download;
   // fd is a file descriptor to read input for streams.
   int fd;
-  // groups is the list of supported groups.
-  const char *groups;
   // nstreams is the number of streams to open.
   size_t nstreams;
   // data is the pointer to memory region which maps file denoted by
@@ -104,19 +102,11 @@ struct Config {
   // max_stream_window is the maximum stream-level flow control window
   // size if auto-tuning is enabled.
   uint64_t max_stream_window;
-  // disable_early_data disables early data.
-  bool disable_early_data;
   // static_secret is used to derive keying materials for Stateless
   // Retry token.
   std::array<uint8_t, 32> static_secret;
   // cc_algo is the congestion controller algorithm.
   ngtcp2_cc_algo cc_algo;
-  // token_file is a path to file to read or write token from
-  // NEW_TOKEN frame.
-  std::string_view token_file;
-  // sni is the value sent in TLS SNI, overriding DNS name of the
-  // remote host.
-  std::string_view sni;
   // initial_rtt is an initial RTT.
   ngtcp2_duration initial_rtt;
   // max_udp_payload_size is the maximum UDP payload size that client
@@ -125,14 +115,6 @@ struct Config {
   // handshake_timeout is the period of time before giving up QUIC
   // connection establishment.
   ngtcp2_duration handshake_timeout;
-  // preferred_versions includes QUIC versions in the order of
-  // preference.  Client uses this field to select a version from the
-  // version set offered in Version Negotiation packet.
-  std::vector<uint32_t> preferred_versions;
-  // available_versions includes QUIC versions that are sent in
-  // available_versions field of version_information
-  // transport_parameter.
-  std::vector<uint32_t> available_versions;
   // no_pmtud disables Path MTU Discovery.
   bool no_pmtud;
   // ack_thresh is the minimum number of the received ACK eliciting

@@ -430,18 +430,10 @@ int Client::extend_max_stream_data(int64_t stream_id, uint64_t max_data) {
   return 0;
 }
 
-namespace {
 int recv_new_token(ngtcp2_conn *conn, const uint8_t *token, size_t tokenlen,
                    void *user_data) {
-  if (config.token_file.empty()) {
-    return 0;
-  }
-
-  util::write_token(config.token_file, token, tokenlen);
-
   return 0;
 }
-} // namespace
 
 namespace {
 int recv_rx_key(ngtcp2_conn *conn, ngtcp2_crypto_level level, void *user_data) {
@@ -553,29 +545,6 @@ int Client::init(int fd, const Address &local_addr, const Address &remote_addr,
   settings.handshake_timeout = config.handshake_timeout;
   settings.no_pmtud = config.no_pmtud;
   settings.ack_thresh = config.ack_thresh;
-
-  std::string token;
-
-  if (!config.token_file.empty()) {
-    std::cerr << "Reading token file " << config.token_file << std::endl;
-
-    auto t = util::read_token(config.token_file);
-    if (t) {
-      token = std::move(*t);
-      settings.token = reinterpret_cast<const uint8_t *>(token.data());
-      settings.tokenlen = token.size();
-    }
-  }
-
-  if (!config.available_versions.empty()) {
-    settings.available_versions = config.available_versions.data();
-    settings.available_versionslen = config.available_versions.size();
-  }
-
-  if (!config.preferred_versions.empty()) {
-    settings.preferred_versions = config.preferred_versions.data();
-    settings.preferred_versionslen = config.preferred_versions.size();
-  }
 
   settings.original_version = original_version_;
 
@@ -1793,7 +1762,6 @@ namespace {
 void config_set_default(Config &config) {
   config = Config{};
   config.fd = -1;
-  config.groups = util::crypto_default_groups();
   config.nstreams = 0;
   config.data = nullptr;
   config.datalen = 0;

@@ -63,11 +63,6 @@ int TLSClientContext::init(const char *private_key_file,
 
   SSL_CTX_set_default_verify_paths(ssl_ctx_);
 
-  if (SSL_CTX_set1_curves_list(ssl_ctx_, config.groups) != 1) {
-    std::cerr << "SSL_CTX_set1_curves_list failed" << std::endl;
-    return -1;
-  }
-
   if (private_key_file && cert_file) {
     if (SSL_CTX_use_PrivateKey_file(ssl_ctx_, private_key_file,
                                     SSL_FILETYPE_PEM) != 1) {
