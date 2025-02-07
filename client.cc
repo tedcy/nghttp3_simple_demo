@@ -46,6 +46,37 @@ Stream::~Stream() {
   }
 }
 
+int Stream::open_file(const std::string_view &path) {
+  assert(fd == -1);
+
+  std::string_view filename;
+
+  auto it = std::find(std::rbegin(path), std::rend(path), '/').base();
+  if (it == std::end(path)) {
+    filename = "index.html"sv;
+  } else {
+    filename = std::string_view{it, static_cast<size_t>(std::end(path) - it)};
+    if (filename == ".."sv || filename == "."sv) {
+      std::cerr << "Invalid file name: " << filename << std::endl;
+      return -1;
+    }
+  }
+
+  auto fname = std::string{config.download};
+  fname += '/';
+  fname += filename;
+
+  fd = open(fname.c_str(), O_WRONLY | O_CREAT | O_TRUNC,
+            S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH);
+  if (fd == -1) {
+    std::cerr << "open: Could not open file " << fname << ": "
+              << strerror(errno) << std::endl;
+    return -1;
+  }
+
+  return 0;
+}
+
 namespace {
 void writecb(struct ev_loop *loop, ev_io *w, int revents) {
   auto c = static_cast<Client *>(w->data);
@@ -1281,6 +1312,10 @@ int Client::on_extend_max_streams() {
       break;
     }
 
+    if (!config.download.empty()) {
+      stream->open_file(stream->req.path);
+    }
+
     streams_.emplace(stream_id, std::move(stream));
   }
   return 0;
@@ -1841,13 +1876,75 @@ void config_set_default(Config &config) {
 
 int main(int argc, char **argv) {
   config_set_default(config);
+  char *data_path = nullptr;
   const char *private_key_file = nullptr;
   const char *cert_file = nullptr;
+
+  for (;;) {
+    static int flag = 0;
+    constexpr static option long_opts[] = {
+      {"data", required_argument, nullptr, 'd'},
+      {"http-method", required_argument, nullptr, 'm'},
+      {"download", required_argument, &flag, 1},
+      {nullptr, 0, nullptr, 0},
+    };
+
+    auto optidx = 0;
+    auto c = getopt_long(argc, argv, "d:m:", long_opts, &optidx);
+    if (c == -1) {
+      break;
+    }
+    switch (c) {
+    case 'd':
+      // --data
+      data_path = optarg;
+      break;
+    case 'm':
+      // --http-method
+      config.http_method = optarg;
+      break;
+    case 0:
+      switch (flag) {
+      case 1:
+        // --download
+        config.download = optarg;
+        break;
+      default:
+        break;
+      }
+    default:
+      break;
+    }
+  }
 
   if (argc - optind < 2) {
     std::cerr << "Too few arguments" << std::endl;
     print_usage();
     exit(EXIT_FAILURE);
+  }
+
+  if (data_path) {
+    auto fd = open(data_path, O_RDONLY);
+    if (fd == -1) {
+      std::cerr << "data: Could not open file " << data_path << ": "
+                << strerror(errno) << std::endl;
+      exit(EXIT_FAILURE);
+    }
+    struct stat st;
+    if (fstat(fd, &st) != 0) {
+      std::cerr << "data: Could not stat file " << data_path << ": "
+                << strerror(errno) << std::endl;
+      exit(EXIT_FAILURE);
+    }
+    config.fd = fd;
+    config.datalen = st.st_size;
+    auto addr = mmap(nullptr, config.datalen, PROT_READ, MAP_SHARED, fd, 0);
+    if (addr == MAP_FAILED) {
+      std::cerr << "data: Could not mmap file " << data_path << ": "
+                << strerror(errno) << std::endl;
+      exit(EXIT_FAILURE);
+    }
+    config.data = static_cast<uint8_t *>(addr);
   }
 
   auto addr = argv[optind++];

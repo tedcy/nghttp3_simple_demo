@@ -50,6 +50,9 @@ struct Request {
 };
 
 struct Config {
+  // download is a path to a directory where a downloaded file is
+  // saved.  If it is empty, no file is saved.
+  std::string_view download;
   // fd is a file descriptor to read input for streams.
   int fd;
   // groups is the list of supported groups.

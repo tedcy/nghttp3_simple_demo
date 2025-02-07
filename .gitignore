@@ -5,3 +5,5 @@ server.key
 go_server/go_server
 test
 *.o
+output
+.cache
