@@ -52,8 +52,6 @@ struct Request {
 struct Config {
   // fd is a file descriptor to read input for streams.
   int fd;
-  // ciphers is the list of enabled ciphers.
-  const char *ciphers;
   // groups is the list of supported groups.
   const char *groups;
   // nstreams is the number of streams to open.

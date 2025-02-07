@@ -1819,7 +1819,6 @@ namespace {
 void config_set_default(Config &config) {
   config = Config{};
   config.fd = -1;
-  config.ciphers = util::crypto_default_ciphers();
   config.groups = util::crypto_default_groups();
   config.nstreams = 0;
   config.data = nullptr;
