@@ -124,9 +124,6 @@ public:
 
   const std::vector<uint32_t> &get_offered_versions() const;
 
-  bool get_early_data() const;
-  void early_data_rejected();
-
 private:
   std::vector<Endpoint> endpoints_;
   Address remote_addr_;
@@ -145,8 +142,6 @@ private:
   size_t nstreams_done_;
   uint32_t client_chosen_version_;
   uint32_t original_version_;
-  // early_data_ is true if client attempts to do 0RTT data transfer.
-  bool early_data_;
   // handshake_confirmed_ gets true after handshake has been
   // confirmed.
   bool handshake_confirmed_;

@@ -97,7 +97,6 @@ Client::Client(struct ev_loop *loop, uint32_t client_chosen_version,
       nstreams_done_(0),
       client_chosen_version_(client_chosen_version),
       original_version_(original_version),
-      early_data_(false),
       handshake_confirmed_(false),
       tx_{} {
   ev_io_init(&wev_, writecb, 0, EV_WRITE);
@@ -195,26 +194,6 @@ int handshake_completed(ngtcp2_conn *conn, void *user_data) {
 } // namespace
 
 int Client::handshake_completed() {
-  if (early_data_ && !tls_session_.get_early_data_accepted()) {
-    if (!config.quiet) {
-      std::cerr << "Early data was rejected by server" << std::endl;
-    }
-
-    // Some TLS backends only report early data rejection after
-    // handshake completion (e.g., OpenSSL).  For TLS backends which
-    // report it early (e.g., BoringSSL and PicoTLS), the following
-    // functions are noop.
-    if (auto rv = ngtcp2_conn_early_data_rejected(conn_); rv != 0) {
-      std::cerr << "ngtcp2_conn_early_data_rejected: " << ngtcp2_strerror(rv)
-                << std::endl;
-      return -1;
-    }
-
-    if (setup_httpconn() != 0) {
-      return -1;
-    }
-  }
-
   if (!config.quiet) {
     std::cerr << "Negotiated cipher suite is " << tls_session_.get_cipher_name()
               << std::endl;
@@ -473,22 +452,11 @@ int recv_rx_key(ngtcp2_conn *conn, ngtcp2_crypto_level level, void *user_data) {
 }
 } // namespace
 
-namespace {
 int early_data_rejected(ngtcp2_conn *conn, void *user_data) {
+  abort();
   auto c = static_cast<Client *>(user_data);
 
-  c->early_data_rejected();
-
   return 0;
-}
-} // namespace
-
-void Client::early_data_rejected() {
-  nghttp3_conn_del(httpconn_);
-  httpconn_ = nullptr;
-
-  nstreams_done_ = 0;
-  streams_.clear();
 }
 
 int Client::init(int fd, const Address &local_addr, const Address &remote_addr,
@@ -645,7 +613,7 @@ int Client::init(int fd, const Address &local_addr, const Address &remote_addr,
     return -1;
   }
 
-  if (tls_session_.init(early_data_, tls_ctx, addr_, this,
+  if (tls_session_.init(tls_ctx, addr_, this,
                         client_chosen_version_, AppProtocol::H3) != 0) {
     return -1;
   }
@@ -1734,8 +1702,6 @@ int Client::setup_httpconn() {
 const std::vector<uint32_t> &Client::get_offered_versions() const {
   return offered_versions_;
 }
-
-bool Client::get_early_data() const { return early_data_; };
 
 namespace {
 int run(Client &c, const char *addr, const char *port,
