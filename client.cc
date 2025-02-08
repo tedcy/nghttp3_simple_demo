@@ -146,12 +146,9 @@ void Client::disconnect() {
 
   ev_io_stop(loop_, &wev_);
 
-  for (auto &ep : endpoints_) {
-    ev_io_stop(loop_, &ep.rev);
-    close(ep.fd);
-  }
+  ev_io_stop(loop_, &endpoint_->rev);
 
-  endpoints_.clear();
+  endpoint_ = nullptr;
 
   ev_signal_stop(loop_, &sigintev_);
 }
@@ -431,15 +428,12 @@ int early_data_rejected(ngtcp2_conn *conn, void *user_data) {
 int Client::init(int fd, const Address &local_addr, const Address &remote_addr,
                  const char *addr, const char *port,
                  TLSClientContext &tls_ctx) {
-  endpoints_.reserve(4);
-
-  endpoints_.emplace_back();
-  auto &ep = endpoints_.back();
-  ep.addr = local_addr;
-  ep.client = this;
-  ep.fd = fd;
-  ev_io_init(&ep.rev, readcb, fd, EV_READ);
-  ep.rev.data = &ep;
+  endpoint_ = std::make_unique<Endpoint>();
+  endpoint_->addr = local_addr;
+  endpoint_->client = this;
+  endpoint_->fd = fd;
+  ev_io_init(&endpoint_->rev, readcb, fd, EV_READ);
+  endpoint_->rev.data = endpoint_.get();
 
   remote_addr_ = remote_addr;
   addr_ = addr;
@@ -533,14 +527,14 @@ int Client::init(int fd, const Address &local_addr, const Address &remote_addr,
 
   auto path = ngtcp2_path{
       {
-          const_cast<sockaddr *>(&ep.addr.su.sa),
-          ep.addr.len,
+          const_cast<sockaddr *>(&endpoint_->addr.su.sa),
+          endpoint_->addr.len,
       },
       {
           const_cast<sockaddr *>(&remote_addr.su.sa),
           remote_addr.len,
       },
-      &ep,
+      endpoint_.get(),
   };
   auto rv = ngtcp2_conn_client_new(&conn_, &dcid, &scid, &path,
                                    client_chosen_version_, &callbacks,
@@ -558,7 +552,7 @@ int Client::init(int fd, const Address &local_addr, const Address &remote_addr,
 
   ngtcp2_conn_set_tls_native_handle(conn_, tls_session_.get_native_handle());
 
-  ev_io_start(loop_, &ep.rev);
+  ev_io_start(loop_, &endpoint_->rev);
 
   ev_signal_start(loop_, &sigintev_);
 
@@ -1634,8 +1628,8 @@ void config_set_default(Config &config) {
   config.initial_rtt = NGTCP2_DEFAULT_INITIAL_RTT;
   config.handshake_timeout = UINT64_MAX;
   config.ack_thresh = 2;
-  config.no_quic_dump = true;
-  config.no_http_dump = true;
+//   config.no_quic_dump = true;
+//   config.no_http_dump = true;
 }
 } // namespace
 

@@ -122,7 +122,7 @@ public:
   int send_blocked_packet();
 
 private:
-  std::vector<Endpoint> endpoints_;
+  std::unique_ptr<Endpoint> endpoint_;
   Address remote_addr_;
   ev_io wev_;
   ev_timer timer_;
