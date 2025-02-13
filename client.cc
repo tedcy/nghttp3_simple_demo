@@ -801,11 +801,12 @@ void Client::update_timer() {
     return;
   }
 
-  auto t = static_cast<ev_tstamp>(expiry - now) / NGTCP2_SECONDS;
+  auto t = static_cast<ev_tstamp>(expiry - now) / NGTCP2_MILLISECONDS;
   if (!config.quiet) {
-    std::cerr << "Set timer=" << std::fixed << t << "s" << std::defaultfloat
+    std::cerr << "Set timer=" << std::fixed << t << "ms" << std::defaultfloat
               << std::endl;
   }
+  t = max(t, 1.0);
   loop_->setTimer(timer_, t);
 }
 
@@ -972,7 +973,7 @@ void Client::on_send_blocked(const Endpoint &ep, const ngtcp2_addr &remote_addr,
 }
 
 void Client::start_wev_endpoint(const Endpoint &ep) {
-  loop_->setEvent(this, EPOLLIN || EPOLLOUT);
+  loop_->setEvent(this, EPOLLIN | EPOLLOUT);
 }
 
 int Client::send_blocked_packet() {
@@ -1573,7 +1574,11 @@ TC_HttpConnPool::onCreateConnFunc EventLoop::getCreateConnFunc() {
             c = nullptr;
             return c;
         }
-        setEvent(c.get(), EPOLLIN || EPOLLOUT);
+        if (auto rv = c->on_write(); rv != 0) {
+            c = nullptr;
+            return c;
+        }
+        setEvent(c.get(), EPOLLIN | EPOLLOUT);
 
         return c;
     };
@@ -1732,12 +1737,15 @@ int main(int argc, char **argv) {
     g_loop.run();
   });
 
+  vector<shared_ptr<Request>> reqs;
+
   for (auto &req : config.requests) {
+    reqs.push_back(make_shared<Request>(req));
     auto iPort = std::stoi(port);
-    g_loop.doRequest(addr, iPort, make_shared<Request>(req));
+    g_loop.doRequest(addr, iPort, reqs.back());
   }
 
-  t.detach();
+  t.join();
 
   return EXIT_SUCCESS;
 }

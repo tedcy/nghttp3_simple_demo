@@ -20,7 +20,7 @@ RPATH = -Wl,-rpath -Wl,/root/http3/ngtcp2/lib/.libs \
 # 源文件和对象文件定义
 SRC = client.cc client_base.cc debug.cc util.cc shared.cc \
       tls_client_context_boringssl.cc tls_client_session_boringssl.cc \
-      tls_session_base_openssl.cc util_openssl.cc
+      tls_session_base_openssl.cc util_openssl.cc tc_epoller.cc
 OBJ = $(SRC:.cc=.o)
 
 # 最终目标文件

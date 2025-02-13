@@ -278,6 +278,9 @@ private:
 
 class EventLoop {
 public:
+    EventLoop() {
+        _epoller.create(1024);
+    }
     void setTimer(shared_ptr<Timer> timer, int timeoutMs) {
         _data.push(timer, timer->getId(), timeoutMs);
     }
@@ -332,7 +335,7 @@ public:
 private:
     TC_HttpConnPool::onCreateConnFunc getCreateConnFunc();
     TC_Epoller _epoller;
-    bool _terminate;
+    bool _terminate = false;
     TC_TimeoutQueueSimple<shared_ptr<Timer>> _data;
     TC_HttpConnPool _connPool;
 };
