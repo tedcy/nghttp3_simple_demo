@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <memory>
 #include <fstream>
+#include <thread>
 
 #include <unistd.h>
 #include <getopt.h>
@@ -30,8 +31,11 @@ namespace {
 auto randgen = util::make_mt19937();
 
 constexpr size_t max_preferred_versionslen = 4;
+
+EventLoop g_loop;
 } // namespace
 
+//TODO 拆分出Request，剩余部分集成到Client里面
 Config config{};
 
 Stream::Stream(const Request &req, int64_t stream_id)
@@ -75,41 +79,34 @@ int Stream::open_file(const std::string_view &path) {
 }
 
 namespace {
-void writecb(struct ev_loop *loop, ev_io *w, int revents) {
-  auto c = static_cast<Client *>(w->data);
-
+void writecb(Client *c) {
   c->on_write();
 }
 
-void readcb(struct ev_loop *loop, ev_io *w, int revents) {
-  auto ep = static_cast<Endpoint *>(w->data);
-  auto c = ep->client;
-
-  if (c->on_read(*ep) != 0) {
+void readcb(Client *c) {
+  if (c->on_read() != 0) {
     return;
   }
 
   c->on_write();
 }
 
-void timeoutcb(struct ev_loop *loop, ev_timer *w, int revents) {
-  int rv;
-  auto c = static_cast<Client *>(w->data);
+void timeoutcb(Client *c) {
 
-  rv = c->handle_expiry();
+  int rv = c->handle_expiry();
   if (rv != 0) {
     return;
   }
 
   c->on_write();
 }
-
-void siginthandler(struct ev_loop *loop, ev_signal *w, int revents) {
-  ev_break(loop, EVBREAK_ALL);
-}
 } // namespace
 
-Client::Client(struct ev_loop *loop, uint32_t client_chosen_version,
+void Client::Timer::onTimeout() {
+  timeoutcb(client_);
+}
+
+Client::Client(EventLoop *loop, uint32_t client_chosen_version,
                uint32_t original_version)
     : remote_addr_{},
       loop_(loop),
@@ -120,12 +117,9 @@ Client::Client(struct ev_loop *loop, uint32_t client_chosen_version,
       client_chosen_version_(client_chosen_version),
       original_version_(original_version),
       handshake_confirmed_(false),
-      tx_{} {
-  ev_io_init(&wev_, writecb, 0, EV_WRITE);
-  wev_.data = this;
-  ev_timer_init(&timer_, timeoutcb, 0., 0.);
-  timer_.data = this;
-  ev_signal_init(&sigintev_, siginthandler, SIGINT);
+      tx_{},
+      timer_(make_shared<Timer>(this)) {
+    tls_ctx_.init(nullptr, nullptr);
 }
 
 Client::~Client() {
@@ -142,15 +136,11 @@ void Client::disconnect() {
 
   handle_error();
 
-  ev_timer_stop(loop_, &timer_);
-
-  ev_io_stop(loop_, &wev_);
-
-  ev_io_stop(loop_, &endpoint_->rev);
+  loop_->cancelTimer(timer_.get());
 
   endpoint_ = nullptr;
 
-  ev_signal_stop(loop_, &sigintev_);
+  //TODO
 }
 
 namespace {
@@ -426,14 +416,11 @@ int early_data_rejected(ngtcp2_conn *conn, void *user_data) {
 } // namespace
 
 int Client::init(int fd, const Address &local_addr, const Address &remote_addr,
-                 const char *addr, const char *port,
-                 TLSClientContext &tls_ctx) {
+                 const char *addr, const char *port) {
   endpoint_ = std::make_unique<Endpoint>();
   endpoint_->addr = local_addr;
   endpoint_->client = this;
   endpoint_->fd = fd;
-  ev_io_init(&endpoint_->rev, readcb, fd, EV_READ);
-  endpoint_->rev.data = endpoint_.get();
 
   remote_addr_ = remote_addr;
   addr_ = addr;
@@ -499,7 +486,7 @@ int Client::init(int fd, const Address &local_addr, const Address &remote_addr,
   settings.log_printf = config.quiet ? nullptr : debug::log_printf;
 
   settings.cc_algo = config.cc_algo;
-  settings.initial_ts = util::timestamp(loop_);
+  settings.initial_ts = util::timestamp();
   settings.initial_rtt = config.initial_rtt;
   settings.max_window = config.max_window;
   settings.max_stream_window = config.max_stream_window;
@@ -545,16 +532,12 @@ int Client::init(int fd, const Address &local_addr, const Address &remote_addr,
     return -1;
   }
 
-  if (tls_session_.init(tls_ctx, addr_, this,
+  if (tls_session_.init(tls_ctx_, addr_, this,
                         client_chosen_version_, AppProtocol::H3) != 0) {
     return -1;
   }
 
   ngtcp2_conn_set_tls_native_handle(conn_, tls_session_.get_native_handle());
-
-  ev_io_start(loop_, &endpoint_->rev);
-
-  ev_signal_start(loop_, &sigintev_);
 
   return 0;
 }
@@ -574,7 +557,7 @@ int Client::feed_data(const Endpoint &ep, const sockaddr *sa, socklen_t salen,
       const_cast<Endpoint *>(&ep),
   };
   if (auto rv = ngtcp2_conn_read_pkt(conn_, &path, pi, data, datalen,
-                                     util::timestamp(loop_));
+                                     util::timestamp());
       rv != 0) {
     std::cerr << "ngtcp2_conn_read_pkt: " << ngtcp2_strerror(rv) << std::endl;
     if (!last_error_.error_code) {
@@ -591,7 +574,8 @@ int Client::feed_data(const Endpoint &ep, const sockaddr *sa, socklen_t salen,
   return 0;
 }
 
-int Client::on_read(const Endpoint &ep) {
+int Client::on_read() {
+  const Endpoint &ep = *endpoint_;
   std::array<uint8_t, 64_k> buf;
   sockaddr_union su;
   size_t pktcnt = 0;
@@ -647,7 +631,7 @@ int Client::on_read(const Endpoint &ep) {
 }
 
 int Client::handle_expiry() {
-  auto now = util::timestamp(loop_);
+  auto now = util::timestamp();
   if (auto rv = ngtcp2_conn_handle_expiry(conn_, now); rv != 0) {
     std::cerr << "ngtcp2_conn_handle_expiry: " << ngtcp2_strerror(rv)
               << std::endl;
@@ -669,7 +653,7 @@ int Client::on_write() {
       return 0;
     }
 
-    ev_io_stop(loop_, &wev_);
+    loop_->setEvent(this, EPOLLIN);
   }
 
   if (auto rv = write_streams(); rv != 0) {
@@ -686,7 +670,7 @@ int Client::write_streams() {
   size_t pktcnt = 0;
   auto max_udp_payload_size = ngtcp2_conn_get_max_tx_udp_payload_size(conn_);
   auto max_pktcnt = ngtcp2_conn_get_send_quantum(conn_) / max_udp_payload_size;
-  auto ts = util::timestamp(loop_);
+  auto ts = util::timestamp();
 
   ngtcp2_path_storage_zero(&ps);
 
@@ -803,7 +787,7 @@ int Client::write_streams() {
 
 void Client::update_timer() {
   auto expiry = ngtcp2_conn_get_expiry(conn_);
-  auto now = util::timestamp(loop_);
+  auto now = util::timestamp();
 
   if (expiry <= now) {
     if (!config.quiet) {
@@ -812,7 +796,7 @@ void Client::update_timer() {
                 << std::defaultfloat << std::endl;
     }
 
-    ev_feed_event(loop_, &timer_, EV_TIMER);
+    timeoutcb(this);
 
     return;
   }
@@ -822,8 +806,7 @@ void Client::update_timer() {
     std::cerr << "Set timer=" << std::fixed << t << "s" << std::defaultfloat
               << std::endl;
   }
-  timer_.repeat = t;
-  ev_timer_again(loop_, &timer_);
+  loop_->setTimer(timer_, t);
 }
 
 namespace {
@@ -989,17 +972,7 @@ void Client::on_send_blocked(const Endpoint &ep, const ngtcp2_addr &remote_addr,
 }
 
 void Client::start_wev_endpoint(const Endpoint &ep) {
-  // We do not close ep.fd, so we can expect that each Endpoint has
-  // unique fd.
-  if (ep.fd != wev_.fd) {
-    if (ev_is_active(&wev_)) {
-      ev_io_stop(loop_, &wev_);
-    }
-
-    ev_io_set(&wev_, ep.fd, EV_WRITE);
-  }
-
-  ev_io_start(loop_, &wev_);
+  loop_->setEvent(this, EPOLLIN || EPOLLOUT);
 }
 
 int Client::send_blocked_packet() {
@@ -1014,7 +987,7 @@ int Client::send_blocked_packet() {
                         tx_.data.data(), tx_.blocked.datalen);
   if (rv != 0) {
     if (rv == NETWORK_ERR_SEND_BLOCKED) {
-      assert(wev_.fd == tx_.blocked.endpoint->fd);
+      assert(endpoint_->fd == tx_.blocked.endpoint->fd);
 
       return 0;
     }
@@ -1046,7 +1019,7 @@ int Client::handle_error() {
 
   auto nwrite = ngtcp2_conn_write_connection_close(
       conn_, &ps.path, &pi, buf.data(), buf.size(), &last_error_,
-      util::timestamp(loop_));
+      util::timestamp());
   if (nwrite < 0) {
     std::cerr << "ngtcp2_conn_write_connection_close: "
               << ngtcp2_strerror(nwrite) << std::endl;
@@ -1501,43 +1474,18 @@ int Client::setup_httpconn() {
   return 0;
 }
 
-namespace {
-int run(Client &c, const char *addr, const char *port,
-        TLSClientContext &tls_ctx) {
-  Address remote_addr, local_addr;
-
-  auto fd = create_sock(remote_addr, addr, port);
-  if (fd == -1) {
-    return -1;
-  }
-
-  in_addr_union iau;
-
-  if (get_local_addr(iau, remote_addr) != 0) {
-    std::cerr << "Could not get local address" << std::endl;
-    close(fd);
-    return -1;
-  }
-
-  if (bind_addr(local_addr, fd, &iau, remote_addr.su.sa.sa_family) != 0) {
-    close(fd);
-    return -1;
-  }
-
-  if (c.init(fd, local_addr, remote_addr, addr, port, tls_ctx) != 0) {
-    return -1;
-  }
-
-  // TODO Do we need this ?
-  if (auto rv = c.on_write(); rv != 0) {
-    return rv;
-  }
-
-  ev_run(EV_DEFAULT, 0);
-
-  return 0;
+void Client::process(int events) {
+    if (events & (EPOLLERR | EPOLLHUP)) {
+    //   onException(string("process events:") +
+    //     ((events & EPOLLERR) ? "EPOLLERR" : " ") +
+    //     ((events & EPOLLHUP) ? "EPOLLHUP" : ""));
+      return;
+    }
+    if (events & EPOLLIN) readcb(this);
+    if (events & EPOLLOUT) writecb(this);
 }
 
+namespace {
 std::string_view get_string(const char *uri, const http_parser_url &u,
                             http_parser_url_fields f) {
   auto p = &u.field_data[f];
@@ -1595,6 +1543,42 @@ int parse_requests(char **argv, size_t argvlen) {
 }
 } // namespace
 
+TC_HttpConnPool::onCreateConnFunc EventLoop::getCreateConnFunc() {
+    return [this](const TC_HttpConnKey &key) {
+        shared_ptr<Client> c;
+        Address remote_addr, local_addr;
+
+        auto fd = create_sock(remote_addr, key.targetAddr.c_str(),
+                              to_string(key.targetPort).c_str());
+        if (fd == -1) {
+            return c;
+        }
+
+        in_addr_union iau;
+
+        if (get_local_addr(iau, remote_addr) != 0) {
+            std::cerr << "Could not get local address" << std::endl;
+            close(fd);
+            return c;
+        }
+
+        if (bind_addr(local_addr, fd, &iau, remote_addr.su.sa.sa_family) != 0) {
+            close(fd);
+            return c;
+        }
+
+        c = make_shared<Client>(this, NGTCP2_PROTO_VER_V1, NGTCP2_PROTO_VER_V1);
+        if (c->init(fd, local_addr, remote_addr, key.targetAddr.c_str(),
+                    to_string(key.targetPort).c_str()) != 0) {
+            c = nullptr;
+            return c;
+        }
+        setEvent(c.get(), EPOLLIN || EPOLLOUT);
+
+        return c;
+    };
+}
+
 std::ofstream keylog_file;
 
 namespace {
@@ -1636,8 +1620,6 @@ void config_set_default(Config &config) {
 int main(int argc, char **argv) {
   config_set_default(config);
   char *data_path = nullptr;
-  const char *private_key_file = nullptr;
-  const char *cert_file = nullptr;
 
   for (;;) {
     static int flag = 0;
@@ -1740,32 +1722,22 @@ int main(int argc, char **argv) {
     config.nstreams = config.requests.size();
   }
 
-  TLSClientContext tls_ctx;
-  if (tls_ctx.init(private_key_file, cert_file) != 0) {
-    exit(EXIT_FAILURE);
-  }
-
-  auto ev_loop_d = defer(ev_loop_destroy, EV_DEFAULT);
-
-  auto keylog_filename = getenv("SSLKEYLOGFILE");
-  if (keylog_filename) {
-    keylog_file.open(keylog_filename, std::ios_base::app);
-    if (keylog_file) {
-      tls_ctx.enable_keylog();
-    }
-  }
-
   if (util::generate_secret(config.static_secret.data(),
                             config.static_secret.size()) != 0) {
     std::cerr << "Unable to generate static secret" << std::endl;
     exit(EXIT_FAILURE);
   }
 
-  Client c(EV_DEFAULT, NGTCP2_PROTO_VER_V1, NGTCP2_PROTO_VER_V1);
+  std::thread t([] {
+    g_loop.run();
+  });
 
-  if (run(c, addr, port, tls_ctx) != 0) {
-      exit(EXIT_FAILURE);
+  for (auto &req : config.requests) {
+    auto iPort = std::stoi(port);
+    g_loop.doRequest(addr, iPort, make_shared<Request>(req));
   }
+
+  t.detach();
 
   return EXIT_SUCCESS;
 }

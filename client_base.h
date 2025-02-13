@@ -47,6 +47,9 @@ struct Request {
   std::string_view scheme;
   std::string authority;
   std::string path;
+  //TODO
+  void onTimeout() {
+  }
 };
 
 struct Config {
