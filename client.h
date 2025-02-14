@@ -67,7 +67,6 @@ class Client;
 
 struct Endpoint {
   Address addr;
-  Client *client;
   int fd;
 };
 

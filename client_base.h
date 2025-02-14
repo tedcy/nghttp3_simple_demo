@@ -44,12 +44,13 @@
 using namespace ngtcp2;
 
 struct Request {
-  std::string_view scheme;
   std::string authority;
   std::string path;
   std::string data;
   std::vector<std::pair<std::string, std::string>> headers;
   std::string http_method;
+  std::string addr;
+  std::string port;
   std::string rspBuffer;
 };
 

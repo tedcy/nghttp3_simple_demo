@@ -16,8 +16,6 @@
 #include <netdb.h>
 #include <sys/mman.h>
 
-#include <http-parser/http_parser.h>
-
 #include "client.h"
 #include "network.h"
 #include "debug.h"
@@ -376,7 +374,6 @@ int Client::init(int fd, const Address &local_addr, const Address &remote_addr,
                  const char *addr, const char *port) {
   endpoint_ = std::make_unique<Endpoint>();
   endpoint_->addr = local_addr;
-  endpoint_->client = this;
   endpoint_->fd = fd;
 
   remote_addr_ = remote_addr;
@@ -1092,7 +1089,6 @@ int Client::submit_http_request(const Stream *stream) {
 
   std::vector<nghttp3_nv> nva{
       util::make_nv_nn(":method", req.http_method),
-      util::make_nv_nn(":scheme", req.scheme),
       util::make_nv_nn(":authority", req.authority),
       util::make_nv_nn(":path", req.path),
       util::make_nv_nn("user-agent", "nghttp3/ngtcp2 client"),
@@ -1435,47 +1431,30 @@ void Client::process(int events) {
 }
 
 namespace {
-std::string_view get_string(const char *uri, const http_parser_url &u,
-                            http_parser_url_fields f) {
-  auto p = &u.field_data[f];
-  return {uri + p->off, p->len};
-}
 
-int parse_uri(Request &req, const char *uri) {
-  http_parser_url u;
+int parse_uri(Request &req, const string &uri) {
+    // 1. 找到 URI 中 `://` 的位置，跳过 scheme
+    size_t scheme_pos = uri.find("://");
+    size_t host_start = (scheme_pos == std::string::npos) ? 0 : scheme_pos + 3;
 
-  http_parser_url_init(&u);
-  if (http_parser_parse_url(uri, strlen(uri), /* is_connect = */ 0, &u) != 0) {
-    return -1;
-  }
+    // 2. 从 host_start 开始，找出 authority 的结束位置
+    size_t path_pos = uri.find('/', host_start);
+    req.authority = (path_pos == std::string::npos)
+                        ? uri.substr(host_start)
+                        : uri.substr(host_start, path_pos - host_start);
 
-  if (!(u.field_set & (1 << UF_SCHEMA)) || !(u.field_set & (1 << UF_HOST))) {
-    return -1;
-  }
+    // 3. 提取 path
+    req.path = (path_pos == std::string::npos) ? "/" : uri.substr(path_pos);
 
-  req.scheme = get_string(uri, u, UF_SCHEMA);
-
-  req.authority = get_string(uri, u, UF_HOST);
-  if (util::numeric_host(req.authority.c_str(), AF_INET6)) {
-    req.authority = '[' + req.authority + ']';
-  }
-  if (u.field_set & (1 << UF_PORT)) {
-    req.authority += ':';
-    req.authority += get_string(uri, u, UF_PORT);
-  }
-
-  if (u.field_set & (1 << UF_PATH)) {
-    req.path = get_string(uri, u, UF_PATH);
-  } else {
-    req.path = "/";
-  }
-
-  if (u.field_set & (1 << UF_QUERY)) {
-    req.path += '?';
-    req.path += get_string(uri, u, UF_QUERY);
-  }
-
-  return 0;
+    // 4. 在 authority 中分离 addr 和 port
+    size_t port_pos = req.authority.find(':');
+    req.addr = (port_pos == std::string::npos)
+                   ? req.authority
+                   : req.authority.substr(0, port_pos);
+    req.port = (port_pos == std::string::npos)
+                   ? ""
+                   : req.authority.substr(port_pos + 1);
+    return 0;
 }
 
 int parse_requests(char **argv, size_t argvlen, vector<shared_ptr<Request>>& requests) {
@@ -1639,14 +1618,11 @@ int main(int argc, char **argv) {
     }
   }
 
-  if (argc - optind < 2) {
+  if (argc < 2) {
     std::cerr << "Too few arguments" << std::endl;
     print_usage();
     exit(EXIT_FAILURE);
   }
-
-  auto addr = argv[optind++];
-  auto port = argv[optind++];
 
   if (parse_requests(&argv[optind], argc - optind, requests) != 0) {
     exit(EXIT_FAILURE);
@@ -1668,8 +1644,7 @@ int main(int argc, char **argv) {
     req->data = data;
     req->headers = headers;
     req->http_method = http_method;
-    auto iPort = std::stoi(port);
-    g_loop.doRequest(addr, iPort, req);
+    g_loop.doRequest(req->addr, std::stoi(req->port), req);
   }
 
   sleep(2);
@@ -1678,8 +1653,7 @@ int main(int argc, char **argv) {
     req->data = data;
     req->headers = headers;
     req->http_method = http_method;
-    auto iPort = std::stoi(port);
-    g_loop.doRequest(addr, iPort, req);
+    g_loop.doRequest(req->addr, std::stoi(req->port), req);
   }
 
   t.join();
