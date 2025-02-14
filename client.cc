@@ -84,8 +84,6 @@ Client::Client(EventLoop *loop, uint32_t client_chosen_version,
 }
 
 Client::~Client() {
-  disconnect();
-
   if (httpconn_) {
     nghttp3_conn_del(httpconn_);
     httpconn_ = nullptr;
@@ -99,7 +97,7 @@ void Client::disconnect() {
 
   loop_->cancelTimer(timer_.get());
 
-  endpoint_ = nullptr;
+  removeConnFunc_(this);
 }
 
 namespace {
@@ -761,10 +759,10 @@ void Client::update_timer() {
   }
 
   auto t = static_cast<ev_tstamp>(expiry - now) / NGTCP2_MILLISECONDS;
-  if (!config.quiet) {
-    std::cerr << "Set timer=" << std::fixed << t << "ms" << std::defaultfloat
-              << std::endl;
-  }
+//   if (!config.quiet) {
+//     std::cerr << "Set timer=" << std::fixed << t << "ms" << std::defaultfloat
+//               << std::endl;
+//   }
   t = max(t, 1.0);
   loop_->setTimer(timer_, t);
 }
@@ -1563,7 +1561,7 @@ void print_usage() {
 namespace {
 void config_set_default(Config &config) {
   config = Config{};
-  config.timeout = 30 * NGTCP2_SECONDS;
+  config.timeout = 0 * NGTCP2_SECONDS;
   config.max_data = 15_m;
   config.max_stream_data_bidi_local = 6_m;
   config.max_stream_data_bidi_remote = 6_m;
@@ -1674,7 +1672,7 @@ int main(int argc, char **argv) {
     g_loop.doRequest(addr, iPort, req);
   }
 
-  sleep(10);
+  sleep(2);
 
   for (auto &req : requests) {
     req->data = data;

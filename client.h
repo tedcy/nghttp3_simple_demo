@@ -52,6 +52,7 @@
 #include <sstream>
 #include <atomic>
 #include <list>
+#include <set>
 
 using namespace ngtcp2;
 
@@ -154,6 +155,9 @@ public:
     on_extend_max_streams();
     on_write();
   }
+  void setRemoveConnFunc(const function<void(const Client *)> &func) {
+      removeConnFunc_ = func;
+  }
 
 private:
   static uint64_t generateId() {
@@ -163,6 +167,7 @@ private:
   EventLoop *loop_;
   uint64_t id_ = generateId();
   TLSClientContext tls_ctx_;
+  function<void(const Client *)> removeConnFunc_;
   // requests contains URIs to request.
   std::list<shared_ptr<Request>> requests_;
   std::unique_ptr<Endpoint> endpoint_;
@@ -248,10 +253,18 @@ public:
         for (auto &func : asyncFuncs) {
             func();
         }
+        //check_pushed_requests中可能触发删除导致迭代器失效
+        //暂存垃圾桶，延迟删除
         for (auto &it : _id2Ptr) {
             auto &conn = it.second;
+            if (_trash.count(conn)) continue;
             conn->check_pushed_requests();
         }
+        for (auto &conn : _trash) {
+            _id2Ptr.erase(conn->getId());
+            cout << "remove trash|id=" << conn->getId() << endl;
+        }
+        _trash.clear();
     }
 private:
     void getConn(const TC_HttpConnKey &key, weak_ptr<Request> weakReqPtr,
@@ -276,11 +289,20 @@ private:
         _id2Ptr[conn->getId()] = conn;
         cout << key << "|create new conn" << endl;
         conn->push_request(reqPtr);
+        conn->setRemoveConnFunc([this, key](const Client *conn) {
+            _conns.erase(key);
+            auto iter = _id2Ptr.find(conn->getId());
+            if (iter != _id2Ptr.end()) {
+                _trash.insert(iter->second);
+            }
+            cout << key << "|push trash|id=" << conn->getId() << endl;
+        });
     }
     mutex asyncFuncMtx_;
     vector<function<void()>> asyncFuncs_;
     map<TC_HttpConnKey, uint64_t> _conns;
     unordered_map<uint64_t, shared_ptr<Client>> _id2Ptr;
+    set<shared_ptr<Client>> _trash;
 };
 
 class EventLoop {
