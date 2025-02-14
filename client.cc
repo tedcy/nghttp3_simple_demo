@@ -1054,10 +1054,8 @@ int Client::on_stream_stop_sending(int64_t stream_id) {
 int Client::on_extend_max_streams() {
   int64_t stream_id;
 
-  vector<shared_ptr<Request>> requests;
-  requests.swap(requests_);
-
-  for (auto &req : requests) {
+  for (auto iter = requests_.begin(); iter != requests_.end();) {
+    auto &req = *iter;
     if (auto rv = ngtcp2_conn_open_bidi_stream(conn_, &stream_id, nullptr);
         rv != 0) {
       assert(NGTCP2_ERR_STREAM_ID_BLOCKED == rv);
@@ -1071,6 +1069,7 @@ int Client::on_extend_max_streams() {
     }
 
     streams_.emplace(stream_id, std::move(stream));
+    iter = requests_.erase(iter);
   }
   return 0;
 }
@@ -1677,7 +1676,6 @@ int main(int argc, char **argv) {
 
   sleep(10);
 
-  //TODO 咋后续追加请求呢？
   for (auto &req : requests) {
     req->data = data;
     req->headers = headers;

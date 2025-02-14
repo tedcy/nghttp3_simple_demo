@@ -51,6 +51,7 @@
 #include <iostream>
 #include <sstream>
 #include <atomic>
+#include <list>
 
 using namespace ngtcp2;
 
@@ -149,6 +150,10 @@ public:
   void push_request(shared_ptr<Request> &req) {
     requests_.push_back(req);
   }
+  void check_pushed_requests() {
+    on_extend_max_streams();
+    on_write();
+  }
 
 private:
   static uint64_t generateId() {
@@ -159,7 +164,7 @@ private:
   uint64_t id_ = generateId();
   TLSClientContext tls_ctx_;
   // requests contains URIs to request.
-  std::vector<shared_ptr<Request>> requests_;
+  std::list<shared_ptr<Request>> requests_;
   std::unique_ptr<Endpoint> endpoint_;
   Address remote_addr_;
   std::map<int64_t, std::unique_ptr<Stream>> streams_;
@@ -242,6 +247,10 @@ public:
         }
         for (auto &func : asyncFuncs) {
             func();
+        }
+        for (auto &it : _id2Ptr) {
+            auto &conn = it.second;
+            conn->check_pushed_requests();
         }
     }
 private:
