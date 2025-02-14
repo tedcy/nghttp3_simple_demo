@@ -1090,6 +1090,7 @@ int Client::submit_http_request(const Stream *stream) {
   std::vector<nghttp3_nv> nva{
       util::make_nv_nn(":method", req.http_method),
       util::make_nv_nn(":authority", req.authority),
+      util::make_nv_nn(":scheme", "https"),
       util::make_nv_nn(":path", req.path),
       util::make_nv_nn("user-agent", "nghttp3/ngtcp2 client"),
   };
@@ -1316,6 +1317,8 @@ int Client::http_stream_close(int64_t stream_id, uint64_t app_error_code) {
       std::cerr << "HTTP stream " << stream_id << " closed with error code "
                 << app_error_code << std::endl;
     }
+    cout << "stream_id: " << stream_id
+         << " data: " << it->second->req->rspBuffer << endl;
     streams_.erase(it);
   }
 
@@ -1454,6 +1457,9 @@ int parse_uri(Request &req, const string &uri) {
     req.port = (port_pos == std::string::npos)
                    ? ""
                    : req.authority.substr(port_pos + 1);
+    cout << "req.addr: " << req.addr << " req.port: " << req.port
+         << " req.path: " << req.path << " req.authority: " << req.authority
+         << endl;
     return 0;
 }
 
@@ -1528,11 +1534,8 @@ std::string readFileToString(const char* path) {
 
 namespace {
 void print_usage() {
-  std::cerr << "Usage: client [OPTIONS] <HOST> <PORT> [<URI>...]" << std::endl;
+  std::cerr << "Usage: client [OPTIONS] [<URI>...]" << std::endl;
   std::cerr << R"(
-  <HOST>      Remote server host (DNS name or IP address).  In case of
-              DNS name, it will be sent in TLS SNI extension.
-  <PORT>      Remote server port
   <URI>       Remote URI)" << std::endl;
 }
 } // namespace
@@ -1552,6 +1555,7 @@ void config_set_default(Config &config) {
   config.initial_rtt = NGTCP2_DEFAULT_INITIAL_RTT;
   config.handshake_timeout = UINT64_MAX;
   config.ack_thresh = 2;
+  config.quiet = true;
 //   config.no_quic_dump = true;
 //   config.no_http_dump = true;
 }
@@ -1567,6 +1571,7 @@ int main(int argc, char **argv) {
   for (;;) {
     static int flag = 0;
     constexpr static option long_opts[] = {
+      {"data", required_argument, nullptr, 'd'},
       {"http-method", required_argument, nullptr, 'm'},
       {"header", required_argument, &flag, 1},
       {nullptr, 0, nullptr, 0},
@@ -1653,6 +1658,7 @@ int main(int argc, char **argv) {
     req->data = data;
     req->headers = headers;
     req->http_method = http_method;
+    req->rspBuffer = "";
     g_loop.doRequest(req->addr, std::stoi(req->port), req);
   }
 
