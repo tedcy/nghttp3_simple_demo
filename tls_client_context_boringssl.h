@@ -40,8 +40,6 @@ public:
 
   SSL_CTX *get_native_handle() const;
 
-  void enable_keylog();
-
 private:
   SSL_CTX *ssl_ctx_;
 };

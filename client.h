@@ -55,17 +55,10 @@
 using namespace ngtcp2;
 
 struct Stream {
-  Stream(const Request &req, int64_t stream_id);
-  ~Stream();
+  Stream(shared_ptr<Request> &req, int64_t stream_id);
 
-  int open_file(const std::string_view &path);
-  int64_t getStreamId() const {
-    return stream_id;
-  }
-
-  Request req;
+  shared_ptr<Request> req;
   int64_t stream_id;
-  int fd;
 };
 
 class Client;
@@ -153,6 +146,9 @@ public:
   }
   using Ptr = std::shared_ptr<Client>;
   void process(int events);
+  void push_request(shared_ptr<Request> &req) {
+    requests_.push_back(req);
+  }
 
 private:
   static uint64_t generateId() {
@@ -162,6 +158,8 @@ private:
   EventLoop *loop_;
   uint64_t id_ = generateId();
   TLSClientContext tls_ctx_;
+  // requests contains URIs to request.
+  std::vector<shared_ptr<Request>> requests_;
   std::unique_ptr<Endpoint> endpoint_;
   Address remote_addr_;
   std::map<int64_t, std::unique_ptr<Stream>> streams_;
@@ -171,8 +169,6 @@ private:
   const char *addr_;
   // port_ is the server port.
   const char *port_;
-  // nstreams_done_ is the number of streams opened.
-  size_t nstreams_done_;
   uint32_t client_chosen_version_;
   uint32_t original_version_;
   // handshake_confirmed_ gets true after handshake has been
@@ -262,6 +258,7 @@ private:
             auto conn = id2Ptr(it->second);
             onGotIdleConn(conn.get());
             cout << key << "|get idle conn" << endl;
+            conn->push_request(reqPtr);
             return;
         }
         auto conn = onCreateConn(key);
@@ -269,6 +266,7 @@ private:
         _conns[key] = conn->getId();
         _id2Ptr[conn->getId()] = conn;
         cout << key << "|create new conn" << endl;
+        conn->push_request(reqPtr);
     }
     mutex asyncFuncMtx_;
     vector<function<void()>> asyncFuncs_;

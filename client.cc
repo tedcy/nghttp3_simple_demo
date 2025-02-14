@@ -35,48 +35,10 @@ constexpr size_t max_preferred_versionslen = 4;
 EventLoop g_loop;
 } // namespace
 
-//TODO 拆分出Request，剩余部分集成到Client里面
 Config config{};
 
-Stream::Stream(const Request &req, int64_t stream_id)
-    : req(req), stream_id(stream_id), fd(-1) {}
-
-Stream::~Stream() {
-  if (fd != -1) {
-    close(fd);
-  }
-}
-
-int Stream::open_file(const std::string_view &path) {
-  assert(fd == -1);
-
-  std::string_view filename;
-
-  auto it = std::find(std::rbegin(path), std::rend(path), '/').base();
-  if (it == std::end(path)) {
-    filename = "index.html"sv;
-  } else {
-    filename = std::string_view{it, static_cast<size_t>(std::end(path) - it)};
-    if (filename == ".."sv || filename == "."sv) {
-      std::cerr << "Invalid file name: " << filename << std::endl;
-      return -1;
-    }
-  }
-
-  auto fname = std::string{config.download};
-  fname += '/';
-  fname += filename;
-
-  fd = open(fname.c_str(), O_WRONLY | O_CREAT | O_TRUNC,
-            S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH);
-  if (fd == -1) {
-    std::cerr << "open: Could not open file " << fname << ": "
-              << strerror(errno) << std::endl;
-    return -1;
-  }
-
-  return 0;
-}
+Stream::Stream(shared_ptr<Request> &req, int64_t stream_id)
+    : req(req), stream_id(stream_id) {}
 
 namespace {
 void writecb(Client *c) {
@@ -113,7 +75,6 @@ Client::Client(EventLoop *loop, uint32_t client_chosen_version,
       httpconn_(nullptr),
       addr_(nullptr),
       port_(nullptr),
-      nstreams_done_(0),
       client_chosen_version_(client_chosen_version),
       original_version_(original_version),
       handshake_confirmed_(false),
@@ -139,8 +100,6 @@ void Client::disconnect() {
   loop_->cancelTimer(timer_.get());
 
   endpoint_ = nullptr;
-
-  //TODO
 }
 
 namespace {
@@ -1095,22 +1054,20 @@ int Client::on_stream_stop_sending(int64_t stream_id) {
 int Client::on_extend_max_streams() {
   int64_t stream_id;
 
-  for (; nstreams_done_ < config.nstreams; ++nstreams_done_) {
+  vector<shared_ptr<Request>> requests;
+  requests.swap(requests_);
+
+  for (auto &req : requests) {
     if (auto rv = ngtcp2_conn_open_bidi_stream(conn_, &stream_id, nullptr);
         rv != 0) {
       assert(NGTCP2_ERR_STREAM_ID_BLOCKED == rv);
       break;
     }
 
-    auto stream = std::make_unique<Stream>(
-        config.requests[nstreams_done_ % config.requests.size()], stream_id);
+    auto stream = std::make_unique<Stream>(req, stream_id);
 
     if (submit_http_request(stream.get()) != 0) {
       break;
-    }
-
-    if (!config.download.empty()) {
-      stream->open_file(stream->req.path);
     }
 
     streams_.emplace(stream_id, std::move(stream));
@@ -1122,8 +1079,9 @@ namespace {
 nghttp3_ssize read_data(nghttp3_conn *conn, int64_t stream_id, nghttp3_vec *vec,
                         size_t veccnt, uint32_t *pflags, void *user_data,
                         void *stream_user_data) {
-  vec[0].base = config.data;
-  vec[0].len = config.datalen;
+  const Stream *stream = static_cast<Stream *>(stream_user_data);
+  vec[0].base = (uint8_t *)stream->req->data.c_str();
+  vec[0].len = stream->req->data.size();
   *pflags |= NGHTTP3_DATA_FLAG_EOF;
 
   return 1;
@@ -1133,22 +1091,22 @@ nghttp3_ssize read_data(nghttp3_conn *conn, int64_t stream_id, nghttp3_vec *vec,
 int Client::submit_http_request(const Stream *stream) {
   std::string content_length_str;
 
-  const auto &req = stream->req;
+  const auto &req = *stream->req;
 
   std::vector<nghttp3_nv> nva{
-      util::make_nv_nn(":method", config.http_method),
+      util::make_nv_nn(":method", req.http_method),
       util::make_nv_nn(":scheme", req.scheme),
       util::make_nv_nn(":authority", req.authority),
       util::make_nv_nn(":path", req.path),
       util::make_nv_nn("user-agent", "nghttp3/ngtcp2 client"),
   };
 
-  for (auto &[key, value] : config.headers) {
+  for (auto &[key, value] : req.headers) {
     nva.push_back(util::make_nv_nn(key, value));
   }
   
-  if (config.fd != -1) {
-    content_length_str = util::format_uint(config.datalen);
+  if (!req.data.empty()) {
+    content_length_str = util::format_uint(req.data.size());
     nva.push_back(util::make_nv_nc("content-length", content_length_str));
   }
 
@@ -1161,7 +1119,7 @@ int Client::submit_http_request(const Stream *stream) {
 
   if (auto rv = nghttp3_conn_submit_request(
           httpconn_, stream->stream_id, nva.data(), nva.size(),
-          config.fd == -1 ? nullptr : &dr, nullptr);
+          req.data.empty() ? nullptr : &dr, (void*)stream);
       rv != 0) {
     std::cerr << "nghttp3_conn_submit_request: " << nghttp3_strerror(rv)
               << std::endl;
@@ -1236,14 +1194,7 @@ void Client::http_write_data(int64_t stream_id, const uint8_t *data,
 
   auto &stream = (*it).second;
 
-  if (stream->fd == -1) {
-    return;
-  }
-
-  ssize_t nwrite;
-  do {
-    nwrite = write(stream->fd, data, datalen);
-  } while (nwrite == -1 && errno == EINTR);
+  stream->req->rspBuffer += std::string((char *)data, datalen);
 }
 
 namespace {
@@ -1530,7 +1481,7 @@ int parse_uri(Request &req, const char *uri) {
   return 0;
 }
 
-int parse_requests(char **argv, size_t argvlen) {
+int parse_requests(char **argv, size_t argvlen, vector<shared_ptr<Request>>& requests) {
   for (size_t i = 0; i < argvlen; ++i) {
     auto uri = argv[i];
     Request req;
@@ -1538,7 +1489,7 @@ int parse_requests(char **argv, size_t argvlen) {
       std::cerr << "Could not parse URI: " << uri << std::endl;
       return -1;
     }
-    config.requests.emplace_back(std::move(req));
+    requests.emplace_back(make_shared<Request>(std::move(req)));
   }
   return 0;
 }
@@ -1584,7 +1535,20 @@ TC_HttpConnPool::onCreateConnFunc EventLoop::getCreateConnFunc() {
     };
 }
 
-std::ofstream keylog_file;
+std::string readFileToString(const char* path) {
+    // 创建输入文件流
+    std::ifstream file(path, std::ios::in | std::ios::binary);
+    if (!file) {
+        return "";
+    }
+
+    // 使用 stringstream 将文件内容读入 string
+    std::ostringstream contents;
+    contents << file.rdbuf();  // 读取文件的整个缓冲区
+    file.close();
+
+    return contents.str();  // 返回文件内容
+}
 
 namespace {
 void print_usage() {
@@ -1600,12 +1564,7 @@ void print_usage() {
 namespace {
 void config_set_default(Config &config) {
   config = Config{};
-  config.fd = -1;
-  config.nstreams = 0;
-  config.data = nullptr;
-  config.datalen = 0;
   config.timeout = 30 * NGTCP2_SECONDS;
-  config.http_method = "GET"sv;
   config.max_data = 15_m;
   config.max_stream_data_bidi_local = 6_m;
   config.max_stream_data_bidi_remote = 6_m;
@@ -1625,14 +1584,15 @@ void config_set_default(Config &config) {
 int main(int argc, char **argv) {
   config_set_default(config);
   char *data_path = nullptr;
+  string_view http_method = "GET"sv;
+  std::vector<std::pair<std::string, std::string>> headers;
+  std::vector<shared_ptr<Request>> requests;
 
   for (;;) {
     static int flag = 0;
     constexpr static option long_opts[] = {
-      {"data", required_argument, nullptr, 'd'},
       {"http-method", required_argument, nullptr, 'm'},
-      {"download", required_argument, &flag, 1},
-      {"header", required_argument, &flag, 2},
+      {"header", required_argument, &flag, 1},
       {nullptr, 0, nullptr, 0},
     };
 
@@ -1648,15 +1608,11 @@ int main(int argc, char **argv) {
       break;
     case 'm':
       // --http-method
-      config.http_method = optarg;
+      http_method = optarg;
       break;
     case 0:
       switch (flag) {
       case 1:
-        // --download
-        config.download = optarg;
-        break;
-      case 2:
       {
         // 添加用户指定的请求头
         std::string header_line = optarg;
@@ -1675,7 +1631,7 @@ int main(int argc, char **argv) {
         // 将名称转换为小写
         std::transform(name.begin(), name.end(), name.begin(),
                    [](unsigned char c) { return std::tolower(c); });
-        config.headers.push_back({name, value});
+        headers.push_back({name, value});
         break;
       }
       default:
@@ -1692,40 +1648,14 @@ int main(int argc, char **argv) {
     exit(EXIT_FAILURE);
   }
 
-  if (data_path) {
-    auto fd = open(data_path, O_RDONLY);
-    if (fd == -1) {
-      std::cerr << "data: Could not open file " << data_path << ": "
-                << strerror(errno) << std::endl;
-      exit(EXIT_FAILURE);
-    }
-    struct stat st;
-    if (fstat(fd, &st) != 0) {
-      std::cerr << "data: Could not stat file " << data_path << ": "
-                << strerror(errno) << std::endl;
-      exit(EXIT_FAILURE);
-    }
-    config.fd = fd;
-    config.datalen = st.st_size;
-    auto addr = mmap(nullptr, config.datalen, PROT_READ, MAP_SHARED, fd, 0);
-    if (addr == MAP_FAILED) {
-      std::cerr << "data: Could not mmap file " << data_path << ": "
-                << strerror(errno) << std::endl;
-      exit(EXIT_FAILURE);
-    }
-    config.data = static_cast<uint8_t *>(addr);
-  }
-
   auto addr = argv[optind++];
   auto port = argv[optind++];
 
-  if (parse_requests(&argv[optind], argc - optind) != 0) {
+  if (parse_requests(&argv[optind], argc - optind, requests) != 0) {
     exit(EXIT_FAILURE);
   }
 
-  if (config.nstreams == 0) {
-    config.nstreams = config.requests.size();
-  }
+  auto data = readFileToString(data_path);
 
   if (util::generate_secret(config.static_secret.data(),
                             config.static_secret.size()) != 0) {
@@ -1737,12 +1667,23 @@ int main(int argc, char **argv) {
     g_loop.run();
   });
 
-  vector<shared_ptr<Request>> reqs;
-
-  for (auto &req : config.requests) {
-    reqs.push_back(make_shared<Request>(req));
+  for (auto &req : requests) {
+    req->data = data;
+    req->headers = headers;
+    req->http_method = http_method;
     auto iPort = std::stoi(port);
-    g_loop.doRequest(addr, iPort, reqs.back());
+    g_loop.doRequest(addr, iPort, req);
+  }
+
+  sleep(10);
+
+  //TODO 咋后续追加请求呢？
+  for (auto &req : requests) {
+    req->data = data;
+    req->headers = headers;
+    req->http_method = http_method;
+    auto iPort = std::stoi(port);
+    g_loop.doRequest(addr, iPort, req);
   }
 
   t.join();

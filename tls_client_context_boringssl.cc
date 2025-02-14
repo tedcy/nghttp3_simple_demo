@@ -80,17 +80,3 @@ int TLSClientContext::init(const char *private_key_file,
 
   return 0;
 }
-
-extern std::ofstream keylog_file;
-
-namespace {
-void keylog_callback(const SSL *ssl, const char *line) {
-  keylog_file.write(line, strlen(line));
-  keylog_file.put('\n');
-  keylog_file.flush();
-}
-} // namespace
-
-void TLSClientContext::enable_keylog() {
-  SSL_CTX_set_keylog_callback(ssl_ctx_, keylog_callback);
-}

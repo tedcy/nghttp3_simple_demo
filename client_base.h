@@ -47,33 +47,18 @@ struct Request {
   std::string_view scheme;
   std::string authority;
   std::string path;
-  //TODO
-  void onTimeout() {
-  }
+  std::string data;
+  std::vector<std::pair<std::string, std::string>> headers;
+  std::string http_method;
+  std::string rspBuffer;
 };
 
 struct Config {
-  std::vector<std::pair<std::string, std::string>> headers;
-  // download is a path to a directory where a downloaded file is
-  // saved.  If it is empty, no file is saved.
-  std::string_view download;
-  // fd is a file descriptor to read input for streams.
-  int fd;
-  // nstreams is the number of streams to open.
-  size_t nstreams;
-  // data is the pointer to memory region which maps file denoted by
-  // fd.
-  uint8_t *data;
-  // datalen is the length of file denoted by fd.
-  size_t datalen;
   // quiet suppresses the output normally shown except for the error
   // messages.
   bool quiet;
   // timeout is an idle timeout for QUIC connection.
   ngtcp2_duration timeout;
-  std::string_view http_method;
-  // requests contains URIs to request.
-  std::vector<Request> requests;
   // no_quic_dump is true if hexdump of QUIC STREAM and CRYPTO data
   // should be disabled.
   bool no_quic_dump;
