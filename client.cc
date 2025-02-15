@@ -73,21 +73,6 @@ static void parseAddr(const string &sAddr, struct in_addr &stSinAddr) {
     }
 }
 
-static pair<string, uint32_t> sockaddr2IpPort(
-    const struct sockaddr_in *addr) {
-    string ip;
-    uint32_t port;
-
-    char ip_buffer[INET_ADDRSTRLEN];
-    inet_ntop(
-        AF_INET, &addr->sin_addr, ip_buffer,
-        sizeof(ip_buffer));  // 将IP地址从网络字节顺序转换为点分十进制字符串
-    ip = ip_buffer;
-    port = ntohs(addr->sin_port);  // 将端口从网络字节顺序转换为主机字节顺序
-
-    return {ip, port};
-}
-
 static int get_local_addr(sockaddr_in &local_addr, int fd) {
     local_addr.sin_family = AF_INET;
     local_addr.sin_addr.s_addr =
