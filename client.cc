@@ -21,7 +21,6 @@
 #include "debug.h"
 #include "util.h"
 #include "shared.h"
-#include "tc_http/tc_http.h"
 
 using namespace ngtcp2;
 using namespace std::literals;
@@ -98,7 +97,7 @@ static int get_local_addr(sockaddr_in &local_addr, int fd) {
 }
 }
 
-Stream::Stream(shared_ptr<Request> &req, int64_t stream_id)
+Stream::Stream(shared_ptr<taf::TC_HttpRequest> &req, int64_t stream_id)
     : req(req), stream_id(stream_id) {}
 
 namespace {
@@ -1072,34 +1071,42 @@ nghttp3_ssize read_data(nghttp3_conn *conn, int64_t stream_id, nghttp3_vec *vec,
                         size_t veccnt, uint32_t *pflags, void *user_data,
                         void *stream_user_data) {
   const Stream *stream = static_cast<Stream *>(stream_user_data);
-  vec[0].base = (uint8_t *)stream->req->data.c_str();
-  vec[0].len = stream->req->data.size();
+  vec[0].base = (uint8_t *)stream->req->getContent().c_str();
+  vec[0].len = stream->req->getContentLength();
   *pflags |= NGHTTP3_DATA_FLAG_EOF;
 
   return 1;
 }
 } // namespace
 
-int Client::submit_http_request(const Stream *stream) {
+int Client::submit_http_request(Stream *stream) {
   std::string content_length_str;
 
   const auto &req = *stream->req;
 
+  stream->method = req.requestType2str(req.getRequestType());
+  stream->authority = req.getURL().getDomain();
+  stream->path = req.getRequest();
+
   std::vector<nghttp3_nv> nva{
-      util::make_nv_nn(":method", req.http_method),
-      util::make_nv_nn(":authority", req.authority),
+      util::make_nv_nn(":method", stream->method),
+      util::make_nv_nn(":authority", stream->authority),
       util::make_nv_nn(":scheme", "https"),
-      util::make_nv_nn(":path", req.path),
-      util::make_nv_nn("user-agent", "nghttp3/ngtcp2 client"),
+      util::make_nv_nn(":path", stream->path),
+    //   util::make_nv_nn("user-agent", "nghttp3/ngtcp2 client"),
   };
 
-  for (auto &[key, value] : req.headers) {
-    nva.push_back(util::make_nv_nn(key, value));
+  for (auto &[key, value] : req.getHeaders()) {
+    auto lowerKey = key;
+    std::transform(lowerKey.begin(), lowerKey.end(), lowerKey.begin(),
+                   [](unsigned char c) { return std::tolower(c); });
+    stream->keys.push_back(lowerKey);
+    nva.push_back(util::make_nv_nn(stream->keys.back(), value));
   }
   
-  if (!req.data.empty()) {
-    content_length_str = util::format_uint(req.data.size());
-    nva.push_back(util::make_nv_nc("content-length", content_length_str));
+  if (!req.getContent().empty()) {
+      stream->content_length = req.getContentLength();
+      nva.push_back(util::make_nv_nc("content-length", stream->content_length));
   }
 
   if (!config.quiet) {
@@ -1111,7 +1118,7 @@ int Client::submit_http_request(const Stream *stream) {
 
   if (auto rv = nghttp3_conn_submit_request(
           httpconn_, stream->stream_id, nva.data(), nva.size(),
-          req.data.empty() ? nullptr : &dr, (void*)stream);
+          req.getContent().empty() ? nullptr : &dr, (void*)stream);
       rv != 0) {
     std::cerr << "nghttp3_conn_submit_request: " << nghttp3_strerror(rv)
               << std::endl;
@@ -1186,7 +1193,7 @@ void Client::http_write_data(int64_t stream_id, const uint8_t *data,
 
   auto &stream = (*it).second;
 
-  stream->req->rspBuffer += std::string((char *)data, datalen);
+  stream->rspBuffer += std::string((char *)data, datalen);
 }
 
 namespace {
@@ -1315,8 +1322,6 @@ int Client::http_stream_close(int64_t stream_id, uint64_t app_error_code) {
       std::cerr << "HTTP stream " << stream_id << " closed with error code "
                 << app_error_code << std::endl;
     }
-    cout << "stream_id: " << stream_id
-         << " data: " << it->second->req->rspBuffer << endl;
     streams_.erase(it);
   }
 
@@ -1431,50 +1436,6 @@ void Client::process(int events) {
     if (events & EPOLLOUT) writecb(this);
 }
 
-namespace {
-
-int parse_uri(Request &req, const string &uri) {
-    // 1. 找到 URI 中 `://` 的位置，跳过 scheme
-    size_t scheme_pos = uri.find("://");
-    size_t host_start = (scheme_pos == std::string::npos) ? 0 : scheme_pos + 3;
-
-    // 2. 从 host_start 开始，找出 authority 的结束位置
-    size_t path_pos = uri.find('/', host_start);
-    req.authority = (path_pos == std::string::npos)
-                        ? uri.substr(host_start)
-                        : uri.substr(host_start, path_pos - host_start);
-
-    // 3. 提取 path
-    req.path = (path_pos == std::string::npos) ? "/" : uri.substr(path_pos);
-
-    // 4. 在 authority 中分离 addr 和 port
-    size_t port_pos = req.authority.find(':');
-    req.addr = (port_pos == std::string::npos)
-                   ? req.authority
-                   : req.authority.substr(0, port_pos);
-    req.port = (port_pos == std::string::npos)
-                   ? ""
-                   : req.authority.substr(port_pos + 1);
-    cout << "req.addr: " << req.addr << " req.port: " << req.port
-         << " req.path: " << req.path << " req.authority: " << req.authority
-         << endl;
-    return 0;
-}
-
-int parse_requests(char **argv, size_t argvlen, vector<shared_ptr<Request>>& requests) {
-  for (size_t i = 0; i < argvlen; ++i) {
-    auto uri = argv[i];
-    Request req;
-    if (parse_uri(req, uri) != 0) {
-      std::cerr << "Could not parse URI: " << uri << std::endl;
-      return -1;
-    }
-    requests.emplace_back(make_shared<Request>(std::move(req)));
-  }
-  return 0;
-}
-} // namespace
-
 TC_HttpConnPool::onCreateConnFunc EventLoop::getCreateConnFunc() {
     return [this](const TC_HttpConnKey &key) {
         shared_ptr<Client> c;
@@ -1513,6 +1474,7 @@ TC_HttpConnPool::onCreateConnFunc EventLoop::getCreateConnFunc() {
     };
 }
 
+namespace {
 std::string readFileToString(const char* path) {
     // 创建输入文件流
     std::ifstream file(path, std::ios::in | std::ios::binary);
@@ -1528,11 +1490,102 @@ std::string readFileToString(const char* path) {
     return contents.str();  // 返回文件内容
 }
 
-namespace {
 void print_usage() {
   std::cerr << "Usage: client [OPTIONS] [<URI>...]" << std::endl;
   std::cerr << R"(
   <URI>       Remote URI)" << std::endl;
+}
+int parse_uri(taf::TC_HttpRequest &req, const string &url,
+              const string &http_method, const string &data) {
+    if (http_method == "POST") {
+        req.setPostRequest(url, data);
+    }
+    if (http_method == "GET") {
+        req.setGetRequest(url);
+    }
+    return 0;
+}
+
+int parse_requests(int argc, char **argv,
+                   vector<shared_ptr<taf::TC_HttpRequest>> &requests) {
+    string data;
+    string http_method = "GET";
+    std::vector<std::pair<std::string, std::string>> headers;
+
+    for (;;) {
+        if (argc < 2) {
+            std::cerr << "Too few arguments" << std::endl;
+            print_usage();
+            exit(EXIT_FAILURE);
+        }
+        static int flag = 0;
+        constexpr static option long_opts[] = {
+            {"data", required_argument, nullptr, 'd'},
+            {"http-method", required_argument, nullptr, 'm'},
+            {"header", required_argument, &flag, 1},
+            {nullptr, 0, nullptr, 0},
+        };
+
+        auto optidx = 0;
+        auto c = getopt_long(argc, argv, "d:m:", long_opts, &optidx);
+        if (c == -1) {
+            break;
+        }
+        switch (c) {
+            case 'd': {
+                // --data
+                char *data_path = optarg;
+                data = readFileToString(data_path);
+                break;
+            }
+            case 'm':
+                // --http-method
+                http_method = optarg;
+                break;
+            case 0:
+                switch (flag) {
+                    case 1: {
+                        // 添加用户指定的请求头
+                        std::string header_line = optarg;
+                        auto colon_pos = header_line.find(':');
+                        if (colon_pos == std::string::npos) {
+                            std::cerr
+                                << "Invalid header format: " << header_line
+                                << std::endl;
+                            return -1;
+                        }
+                        auto name = header_line.substr(0, colon_pos);
+                        auto value = header_line.substr(colon_pos + 1);
+                        // 去除可能的空格
+                        while (!value.empty() &&
+                               (value[0] == ' ' || value[0] == '\t')) {
+                            value.erase(0, 1);
+                        }
+                        // 将名称转换为小写
+                        std::transform(
+                            name.begin(), name.end(), name.begin(),
+                            [](unsigned char c) { return std::tolower(c); });
+                        headers.push_back({name, value});
+                        break;
+                    }
+                    default:
+                        break;
+                }
+            default:
+                break;
+        }
+    }
+    for (size_t i = optind; i < argc; ++i) {
+        auto uri = argv[i];
+        cout << uri << endl;
+        taf::TC_HttpRequest req;
+        if (parse_uri(req, uri, http_method, data) != 0) {
+            std::cerr << "Could not parse URI: " << uri << std::endl;
+            return -1;
+        }
+        requests.emplace_back(make_shared<taf::TC_HttpRequest>(std::move(req)));
+    }
+    return 0;
 }
 } // namespace
 
@@ -1559,77 +1612,11 @@ void config_set_default(Config &config) {
 
 int main(int argc, char **argv) {
   config_set_default(config);
-  char *data_path = nullptr;
-  string_view http_method = "GET"sv;
-  std::vector<std::pair<std::string, std::string>> headers;
-  std::vector<shared_ptr<Request>> requests;
+  std::vector<shared_ptr<taf::TC_HttpRequest>> requests;
 
-  for (;;) {
-    static int flag = 0;
-    constexpr static option long_opts[] = {
-      {"data", required_argument, nullptr, 'd'},
-      {"http-method", required_argument, nullptr, 'm'},
-      {"header", required_argument, &flag, 1},
-      {nullptr, 0, nullptr, 0},
-    };
-
-    auto optidx = 0;
-    auto c = getopt_long(argc, argv, "d:m:", long_opts, &optidx);
-    if (c == -1) {
-      break;
-    }
-    switch (c) {
-    case 'd':
-      // --data
-      data_path = optarg;
-      break;
-    case 'm':
-      // --http-method
-      http_method = optarg;
-      break;
-    case 0:
-      switch (flag) {
-      case 1:
-      {
-        // 添加用户指定的请求头
-        std::string header_line = optarg;
-        auto colon_pos = header_line.find(':');
-        if (colon_pos == std::string::npos) {
-            std::cerr << "Invalid header format: " << header_line
-                    << std::endl;
-            return -1;
-        }
-        auto name = header_line.substr(0, colon_pos);
-        auto value = header_line.substr(colon_pos + 1);
-        // 去除可能的空格
-        while (!value.empty() && (value[0] == ' ' || value[0] == '\t')) {
-            value.erase(0, 1);
-        }
-        // 将名称转换为小写
-        std::transform(name.begin(), name.end(), name.begin(),
-                   [](unsigned char c) { return std::tolower(c); });
-        headers.push_back({name, value});
-        break;
-      }
-      default:
-        break;
-      }
-    default:
-      break;
-    }
-  }
-
-  if (argc < 2) {
-    std::cerr << "Too few arguments" << std::endl;
-    print_usage();
+  if (parse_requests(argc, argv, requests) != 0) {
     exit(EXIT_FAILURE);
   }
-
-  if (parse_requests(&argv[optind], argc - optind, requests) != 0) {
-    exit(EXIT_FAILURE);
-  }
-
-  auto data = readFileToString(data_path);
 
   if (util::generate_secret(config.static_secret.data(),
                             config.static_secret.size()) != 0) {
@@ -1642,25 +1629,16 @@ int main(int argc, char **argv) {
   });
 
   for (auto &req : requests) {
-    req->data = data;
-    req->headers = headers;
-    req->http_method = http_method;
-    g_loop.doRequest(req->addr, std::stoi(req->port), req);
+    g_loop.doRequest(req);
   }
 
   sleep(2);
 
   for (auto &req : requests) {
-    req->data = data;
-    req->headers = headers;
-    req->http_method = http_method;
-    req->rspBuffer = "";
-    g_loop.doRequest(req->addr, std::stoi(req->port), req);
+    g_loop.doRequest(req);
   }
 
   t.join();
-
-  taf::TC_HttpRequest req;
 
   return EXIT_SUCCESS;
 }

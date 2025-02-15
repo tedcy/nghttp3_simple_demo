@@ -53,14 +53,30 @@
 #include <atomic>
 #include <list>
 #include <set>
+#include "tc_http/tc_http.h"
 
 using namespace ngtcp2;
 
 struct Stream {
-  Stream(shared_ptr<Request> &req, int64_t stream_id);
+  Stream(shared_ptr<taf::TC_HttpRequest> &req, int64_t stream_id);
+  ~Stream() {
+    taf::TC_HttpResponse rsp;
+    rsp.decode(rspBuffer);
+    cout << "stream_id: " << stream_id << " data: " << rspBuffer
+         << " status: " << rsp.getStatus() << " content: " << rsp.getContent()
+         << endl;
+  }
 
-  shared_ptr<Request> req;
+  shared_ptr<taf::TC_HttpRequest> req;
+  string rspBuffer;
   int64_t stream_id;
+
+  //for req str
+  string method;
+  string authority;
+  string path;
+  string content_length;
+  vector<string> keys;
 };
 
 class Client;
@@ -119,7 +135,7 @@ public:
   void set_remote_addr(const ngtcp2_addr &remote_addr);
 
   int setup_httpconn();
-  int submit_http_request(const Stream *stream);
+  int submit_http_request(Stream *stream);
   int recv_stream_data(uint32_t flags, int64_t stream_id, const uint8_t *data,
                        size_t datalen);
   int acked_stream_data_offset(int64_t stream_id, uint64_t datalen);
@@ -144,7 +160,7 @@ public:
   }
   using Ptr = std::shared_ptr<Client>;
   void process(int events);
-  void push_request(shared_ptr<Request> &req) {
+  void push_request(shared_ptr<taf::TC_HttpRequest> &req) {
     requests_.push_back(req);
   }
   void check_pushed_requests() {
@@ -165,7 +181,7 @@ private:
   TLSClientContext tls_ctx_;
   function<void(const Client *)> removeConnFunc_;
   // requests contains URIs to request.
-  std::list<shared_ptr<Request>> requests_;
+  std::list<shared_ptr<taf::TC_HttpRequest>> requests_;
   std::unique_ptr<Endpoint> endpoint_;
   sockaddr_in remote_addr_;
   std::map<int64_t, std::unique_ptr<Stream>> streams_;
@@ -229,14 +245,15 @@ public:
         return it->second;
     }
     void asyncGetConn(const string &targetAddr, uint32_t targetPort,
-                      shared_ptr<Request> reqPtr,
+                      shared_ptr<taf::TC_HttpRequest> reqPtr,
                       const onCreateConnFunc &onCreateConn,
                       const onGotIdleConnFunc &onGotIdleConn) {
         TC_HttpConnKey key{targetAddr, targetPort};
         unique_lock<mutex> lock(asyncFuncMtx_);
         asyncFuncs_.push_back(
-            [this, key = move(key), weakReqPtr = weak_ptr<Request>(reqPtr),
-             onCreateConn, onGotIdleConn]() {
+            [this, key = move(key),
+             weakReqPtr = weak_ptr<taf::TC_HttpRequest>(reqPtr), onCreateConn,
+             onGotIdleConn]() {
                 getConn(key, weakReqPtr, onCreateConn, onGotIdleConn);
             });
     }
@@ -263,7 +280,7 @@ public:
         _trash.clear();
     }
 private:
-    void getConn(const TC_HttpConnKey &key, weak_ptr<Request> weakReqPtr,
+    void getConn(const TC_HttpConnKey &key, weak_ptr<taf::TC_HttpRequest> weakReqPtr,
                  const onCreateConnFunc &onCreateConn,
                  const onGotIdleConnFunc &onGotIdleConn) {
         auto reqPtr = weakReqPtr.lock();
@@ -312,8 +329,10 @@ public:
     void cancelTimer(const Timer* timer) {
         _data.erase(timer->getId());
     }
-    void doRequest(const string &targetAddr, uint32_t targetPort,
-                   shared_ptr<Request> reqPtr) {
+    void doRequest(shared_ptr<taf::TC_HttpRequest> reqPtr) {
+        string targetAddr;
+        uint32_t targetPort = 0;
+        reqPtr->getHostPort(targetAddr, targetPort);
         _connPool.asyncGetConn(targetAddr, targetPort, reqPtr,
                                getCreateConnFunc(),
                                [this](const Client *conn) {});
