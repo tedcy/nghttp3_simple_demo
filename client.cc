@@ -35,6 +35,83 @@ EventLoop g_loop;
 
 Config config{};
 
+namespace TC_Socket {
+static int tc_safe_gethostbyname_r(vector<char> &buf, const string &sAddr,
+                                   struct hostent *stHostent,
+                                   struct hostent **pstHostent) {
+    static constexpr int initSize = 2048;
+    int iError = 0;
+    if (buf.size() < initSize) {
+        buf.resize(initSize);
+    }
+
+    while ((gethostbyname_r(sAddr.c_str(), stHostent, buf.data(), buf.size(),
+                            pstHostent, &iError)) == ERANGE) {
+        buf.resize(buf.size() * 2);
+    }
+    return iError;
+}
+
+static void parseAddr(const string &sAddr, struct in_addr &stSinAddr) {
+    int iRet = inet_pton(AF_INET, sAddr.c_str(), &stSinAddr);
+    if (iRet < 0) {
+        throw string("[TC_Socket::parseAddr] inet_pton error", errno);
+    } else if (iRet == 0) {
+        struct hostent stHostent;
+        struct hostent *pstHostent;
+        vector<char> buf;
+        int iError =
+            tc_safe_gethostbyname_r(buf, sAddr, &stHostent, &pstHostent);
+
+        if (pstHostent == NULL) {
+            throw string(
+                "[TC_Socket::parseAddr] tc_safe_gethostbyname_r error! :" +
+                string(hstrerror(iError)));
+        } else {
+            stSinAddr = *(struct in_addr *)pstHostent->h_addr;
+        }
+    }
+}
+
+static pair<string, uint32_t> sockaddr2IpPort(
+    const struct sockaddr_in *addr) {
+    string ip;
+    uint32_t port;
+
+    char ip_buffer[INET_ADDRSTRLEN];
+    inet_ntop(
+        AF_INET, &addr->sin_addr, ip_buffer,
+        sizeof(ip_buffer));  // 将IP地址从网络字节顺序转换为点分十进制字符串
+    ip = ip_buffer;
+    port = ntohs(addr->sin_port);  // 将端口从网络字节顺序转换为主机字节顺序
+
+    return {ip, port};
+}
+
+static int get_local_addr(sockaddr_in &local_addr, int fd) {
+    local_addr.sin_family = AF_INET;
+    local_addr.sin_addr.s_addr =
+        htonl(INADDR_ANY);           // 绑定到 0.0.0.0（任意地址）
+    local_addr.sin_port = htons(0);  // 绑定到随机系统端口
+
+    if (bind(fd, reinterpret_cast<sockaddr *>(&local_addr),
+             sizeof(local_addr)) == -1) {
+        std::cerr << "bind: " << strerror(errno) << std::endl;
+        return -1;
+    }
+
+    // 获取绑定后的地址信息
+    socklen_t len = sizeof(local_addr);
+    if (getsockname(fd, reinterpret_cast<sockaddr *>(&local_addr), &len) ==
+        -1) {
+        std::cerr << "getsockname: " << strerror(errno) << std::endl;
+        return -1;
+    }
+
+    return 0;
+}
+}
+
 Stream::Stream(shared_ptr<Request> &req, int64_t stream_id)
     : req(req), stream_id(stream_id) {}
 
@@ -311,8 +388,7 @@ int path_validation(ngtcp2_conn *conn, uint32_t flags, const ngtcp2_path *path,
 } // namespace
 
 void Client::set_remote_addr(const ngtcp2_addr &remote_addr) {
-  memcpy(&remote_addr_.su, remote_addr.addr, remote_addr.addrlen);
-  remote_addr_.len = remote_addr.addrlen;
+  memcpy(&remote_addr_, remote_addr.addr, sizeof(sockaddr_in));
 }
 
 namespace {
@@ -370,8 +446,9 @@ int early_data_rejected(ngtcp2_conn *conn, void *user_data) {
 }
 } // namespace
 
-int Client::init(int fd, const Address &local_addr, const Address &remote_addr,
-                 const char *addr, const char *port) {
+int Client::init(int fd, const sockaddr_in &local_addr,
+                 const sockaddr_in &remote_addr, const char *addr,
+                 const char *port) {
   endpoint_ = std::make_unique<Endpoint>();
   endpoint_->addr = local_addr;
   endpoint_->fd = fd;
@@ -468,12 +545,12 @@ int Client::init(int fd, const Address &local_addr, const Address &remote_addr,
 
   auto path = ngtcp2_path{
       {
-          const_cast<sockaddr *>(&endpoint_->addr.su.sa),
-          endpoint_->addr.len,
+          reinterpret_cast<sockaddr *>(&endpoint_->addr),
+          sizeof(sockaddr_in),
       },
       {
-          const_cast<sockaddr *>(&remote_addr.su.sa),
-          remote_addr.len,
+          reinterpret_cast<sockaddr *>(&remote_addr_),
+          sizeof(sockaddr_in),
       },
       endpoint_.get(),
   };
@@ -482,12 +559,13 @@ int Client::init(int fd, const Address &local_addr, const Address &remote_addr,
                                    &settings, &params, nullptr, this);
 
   if (rv != 0) {
-    std::cerr << "ngtcp2_conn_client_new: " << ngtcp2_strerror(rv) << std::endl;
+    std::cerr << "ngtcp2_conn_client_new: " << ngtcp2_strerror(rv)
+                << std::endl;
     return -1;
   }
 
-  if (tls_session_.init(tls_ctx_, addr_, this,
-                        client_chosen_version_, AppProtocol::H3) != 0) {
+  if (tls_session_.init(tls_ctx_, addr_, this, client_chosen_version_,
+                        AppProtocol::H3) != 0) {
     return -1;
   }
 
@@ -501,8 +579,9 @@ int Client::feed_data(const Endpoint &ep, const sockaddr *sa, socklen_t salen,
                       size_t datalen) {
   auto path = ngtcp2_path{
       {
-          const_cast<sockaddr *>(&ep.addr.su.sa),
-          ep.addr.len,
+          const_cast<sockaddr *>(
+                reinterpret_cast<const sockaddr *>(&ep.addr)),
+          sizeof(sockaddr_in),
       },
       {
           const_cast<sockaddr *>(sa),
@@ -531,7 +610,8 @@ int Client::feed_data(const Endpoint &ep, const sockaddr *sa, socklen_t salen,
 int Client::on_read() {
   const Endpoint &ep = *endpoint_;
   std::array<uint8_t, 64_k> buf;
-  sockaddr_union su;
+  sockaddr_storage ss;
+  sockaddr* sa = reinterpret_cast<sockaddr*>(&ss);
   size_t pktcnt = 0;
   ngtcp2_pkt_info pi;
 
@@ -540,7 +620,7 @@ int Client::on_read() {
   msg_iov.iov_len = buf.size();
 
   msghdr msg{};
-  msg.msg_name = &su;
+  msg.msg_name = &ss;
   msg.msg_iov = &msg_iov;
   msg.msg_iovlen = 1;
 
@@ -548,7 +628,7 @@ int Client::on_read() {
   msg.msg_control = msg_ctrl;
 
   for (;;) {
-    msg.msg_namelen = sizeof(su);
+    msg.msg_namelen = sizeof(ss);
     msg.msg_controllen = sizeof(msg_ctrl);
 
     auto nread = recvmsg(ep.fd, &msg, 0);
@@ -560,17 +640,17 @@ int Client::on_read() {
       break;
     }
 
-    pi.ecn = msghdr_get_ecn(&msg, su.storage.ss_family);
+    pi.ecn = msghdr_get_ecn(&msg, ss.ss_family);
 
     if (!config.quiet) {
       std::cerr << "Received packet: local="
-                << util::straddr(&ep.addr.su.sa, ep.addr.len)
-                << " remote=" << util::straddr(&su.sa, msg.msg_namelen)
+                << util::straddr((const sockaddr *)&ep.addr, sizeof(sockaddr_in))
+                << " remote=" << util::straddr(sa, msg.msg_namelen)
                 << " ecn=0x" << std::hex << pi.ecn << std::dec << " " << nread
                 << " bytes" << std::endl;
     }
 
-    if (feed_data(ep, &su.sa, msg.msg_namelen, &pi, buf.data(), nread) != 0) {
+    if (feed_data(ep, sa, msg.msg_namelen, &pi, buf.data(), nread) != 0) {
       return -1;
     }
 
@@ -765,58 +845,6 @@ void Client::update_timer() {
 }
 
 namespace {
-int bind_addr(Address &local_addr, int fd, const in_addr_union *iau,
-              int family) {
-  addrinfo hints{};
-  addrinfo *res, *rp;
-
-  hints.ai_family = family;
-  hints.ai_socktype = SOCK_DGRAM;
-  hints.ai_flags = AI_PASSIVE;
-
-  char *node;
-  std::array<char, NI_MAXHOST> nodebuf;
-
-  if (iau) {
-    if (inet_ntop(family, iau, nodebuf.data(), nodebuf.size()) == nullptr) {
-      std::cerr << "inet_ntop: " << strerror(errno) << std::endl;
-      return -1;
-    }
-
-    node = nodebuf.data();
-  } else {
-    node = nullptr;
-  }
-
-  if (auto rv = getaddrinfo(node, "0", &hints, &res); rv != 0) {
-    std::cerr << "getaddrinfo: " << gai_strerror(rv) << std::endl;
-    return -1;
-  }
-
-  auto res_d = defer(freeaddrinfo, res);
-
-  for (rp = res; rp; rp = rp->ai_next) {
-    if (bind(fd, rp->ai_addr, rp->ai_addrlen) != -1) {
-      break;
-    }
-  }
-
-  if (!rp) {
-    std::cerr << "Could not bind" << std::endl;
-    return -1;
-  }
-
-  socklen_t len = sizeof(local_addr.su.storage);
-  if (getsockname(fd, &local_addr.su.sa, &len) == -1) {
-    std::cerr << "getsockname: " << strerror(errno) << std::endl;
-    return -1;
-  }
-  local_addr.len = len;
-  local_addr.ifindex = 0;
-
-  return 0;
-}
-
 int udp_sock(int family) {
   auto fd = util::create_nonblock_socket(family, SOCK_DGRAM, IPPROTO_UDP);
   if (fd == -1) {
@@ -830,40 +858,23 @@ int udp_sock(int family) {
   return fd;
 }
 
-int create_sock(Address &remote_addr, const char *addr, const char *port) {
-  addrinfo hints{};
-  addrinfo *res, *rp;
-
-  hints.ai_family = AF_UNSPEC;
-  hints.ai_socktype = SOCK_DGRAM;
-
-  if (auto rv = getaddrinfo(addr, port, &hints, &res); rv != 0) {
-    std::cerr << "getaddrinfo: " << gai_strerror(rv) << std::endl;
-    return -1;
-  }
-
-  auto res_d = defer(freeaddrinfo, res);
-
-  int fd = -1;
-
-  for (rp = res; rp; rp = rp->ai_next) {
-    fd = udp_sock(rp->ai_family);
-    if (fd == -1) {
-      continue;
+int get_remote_addr(sockaddr_in &remote_addr, const char *addr, const char *port) {
+    // Step 1: 使用 parseAddr 解析 IP 地址
+    struct in_addr sin_addr;
+    try {
+        TC_Socket::parseAddr(addr,
+                             sin_addr);  // 替代 getaddrinfo 的 IP 解析部分
+    } catch (const std::exception &e) {
+        std::cerr << e.what() << std::endl;
+        return -1;
     }
 
-    break;
-  }
+    // Step 2: 构造 sockaddr_in
+    remote_addr.sin_family = AF_INET;
+    remote_addr.sin_addr = sin_addr;
+    remote_addr.sin_port = htons(std::stoi(port));  // 将端口转为网络字节序
 
-  if (!rp) {
-    std::cerr << "Could not create socket" << std::endl;
-    return -1;
-  }
-
-  remote_addr.len = rp->ai_addrlen;
-  memcpy(&remote_addr.su, rp->ai_addr, rp->ai_addrlen);
-
-  return fd;
+    return 0;
 }
 } // namespace
 
@@ -901,11 +912,13 @@ int Client::send_packet(const Endpoint &ep, const ngtcp2_addr &remote_addr,
   assert(static_cast<size_t>(nwrite) == datalen);
 
   if (!config.quiet) {
-    std::cerr << "Sent packet: local="
-              << util::straddr(&ep.addr.su.sa, ep.addr.len) << " remote="
-              << util::straddr(remote_addr.addr, remote_addr.addrlen)
-              << " ecn=0x" << std::hex << ecn << std::dec << " " << nwrite
-              << " bytes" << std::endl;
+      std::cerr << "Sent packet: local="
+                << util::straddr((const sockaddr *)&ep.addr,
+                                 sizeof(sockaddr_in))
+                << " remote="
+                << util::straddr(remote_addr.addr, remote_addr.addrlen)
+                << " ecn=0x" << std::hex << ecn << std::dec << " " << nwrite
+                << " bytes" << std::endl;
   }
 
   return NETWORK_ERR_OK;
@@ -917,8 +930,7 @@ void Client::on_send_blocked(const Endpoint &ep, const ngtcp2_addr &remote_addr,
 
   tx_.send_blocked = true;
 
-  memcpy(&tx_.blocked.remote_addr.su, remote_addr.addr, remote_addr.addrlen);
-  tx_.blocked.remote_addr.len = remote_addr.addrlen;
+  memcpy(&tx_.blocked.remote_addr, remote_addr.addr, remote_addr.addrlen);
   tx_.blocked.ecn = ecn;
   tx_.blocked.datalen = datalen;
   tx_.blocked.endpoint = &ep;
@@ -934,8 +946,8 @@ int Client::send_blocked_packet() {
   assert(tx_.send_blocked);
 
   ngtcp2_addr remote_addr{
-      .addr = &tx_.blocked.remote_addr.su.sa,
-      .addrlen = tx_.blocked.remote_addr.len,
+      .addr = reinterpret_cast<sockaddr *>(&tx_.blocked.remote_addr),
+      .addrlen = sizeof(sockaddr_in),
   };
 
   auto rv = send_packet(*tx_.blocked.endpoint, remote_addr, tx_.blocked.ecn,
@@ -1480,23 +1492,21 @@ int parse_requests(char **argv, size_t argvlen, vector<shared_ptr<Request>>& req
 TC_HttpConnPool::onCreateConnFunc EventLoop::getCreateConnFunc() {
     return [this](const TC_HttpConnKey &key) {
         shared_ptr<Client> c;
-        Address remote_addr, local_addr;
+        sockaddr_in remote_addr, local_addr;
 
-        auto fd = create_sock(remote_addr, key.targetAddr.c_str(),
-                              to_string(key.targetPort).c_str());
+        if (get_remote_addr(remote_addr, key.targetAddr.c_str(),
+                            to_string(key.targetPort).c_str()) != 0) {
+            return c;
+        }
+
+        int fd = udp_sock(AF_INET);
         if (fd == -1) {
+            std::cerr << "Could not create socket" << std::endl;
             return c;
         }
 
-        in_addr_union iau;
-
-        if (get_local_addr(iau, remote_addr) != 0) {
+        if (TC_Socket::get_local_addr(local_addr, fd) != 0) {
             std::cerr << "Could not get local address" << std::endl;
-            close(fd);
-            return c;
-        }
-
-        if (bind_addr(local_addr, fd, &iau, remote_addr.su.sa.sa_family) != 0) {
             close(fd);
             return c;
         }

@@ -66,7 +66,7 @@ struct Stream {
 class Client;
 
 struct Endpoint {
-  Address addr;
+  sockaddr_in addr;
   int fd;
 };
 
@@ -95,8 +95,8 @@ public:
          uint32_t original_version);
   ~Client();
 
-  int init(int fd, const Address &local_addr, const Address &remote_addr,
-           const char *addr, const char *port);
+  int init(int fd, const sockaddr_in &local_addr,
+           const sockaddr_in &remote_addr, const char *addr, const char *port);
   void disconnect();
 
   int on_read();
@@ -115,9 +115,6 @@ public:
   int on_stream_close(int64_t stream_id, uint64_t app_error_code);
   int on_extend_max_streams();
   int handle_error();
-
-  int select_preferred_address(Address &selected_addr,
-                               const ngtcp2_preferred_addr *paddr);
 
   void set_remote_addr(const ngtcp2_addr &remote_addr);
 
@@ -170,7 +167,7 @@ private:
   // requests contains URIs to request.
   std::list<shared_ptr<Request>> requests_;
   std::unique_ptr<Endpoint> endpoint_;
-  Address remote_addr_;
+  sockaddr_in remote_addr_;
   std::map<int64_t, std::unique_ptr<Stream>> streams_;
   std::vector<uint32_t> offered_versions_;
   nghttp3_conn *httpconn_;
@@ -189,7 +186,7 @@ private:
     // blocked field is effective only when send_blocked is true.
     struct {
       const Endpoint *endpoint;
-      Address remote_addr;
+      sockaddr_in remote_addr;
       unsigned int ecn;
       size_t datalen;
     } blocked;

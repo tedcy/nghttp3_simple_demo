@@ -80,10 +80,6 @@ void fd_set_ip_mtu_discover(int fd, int family);
 // fd_set_ip_dontfrag sets IP(V6)_DONTFRAG socket option to |fd|.
 void fd_set_ip_dontfrag(int fd, int family);
 
-// get_local_addr stores preferred local address (interface address)
-// in |iau| for a given destination address |remote_addr|.
-int get_local_addr(in_addr_union &iau, const Address &remote_addr);
-
 } // namespace ngtcp2
 
 #endif // SHARED_H

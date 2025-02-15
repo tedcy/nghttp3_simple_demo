@@ -57,24 +57,6 @@ enum network_error {
   NETWORK_ERR_DROP_CONN = -14,
 };
 
-union in_addr_union {
-  in_addr in;
-  in6_addr in6;
-};
-
-union sockaddr_union {
-  sockaddr_storage storage;
-  sockaddr sa;
-  sockaddr_in6 in6;
-  sockaddr_in in;
-};
-
-struct Address {
-  socklen_t len;
-  union sockaddr_union su;
-  uint32_t ifindex;
-};
-
 } // namespace ngtcp2
 
 #endif // NETWORK_H
