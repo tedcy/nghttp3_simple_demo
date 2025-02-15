@@ -153,55 +153,6 @@ void fd_set_ip_dontfrag(int fd, int family) {
 #endif // defined(IP_DONTFRAG) && defined(IPV6_DONTFRAG)
 }
 
-std::optional<Address> msghdr_get_local_addr(msghdr *msg, int family) {
-  switch (family) {
-  case AF_INET:
-    for (auto cmsg = CMSG_FIRSTHDR(msg); cmsg; cmsg = CMSG_NXTHDR(msg, cmsg)) {
-      if (cmsg->cmsg_level == IPPROTO_IP && cmsg->cmsg_type == IP_PKTINFO) {
-        auto pktinfo = reinterpret_cast<in_pktinfo *>(CMSG_DATA(cmsg));
-        Address res{};
-        res.ifindex = pktinfo->ipi_ifindex;
-        res.len = sizeof(res.su.in);
-        auto &sa = res.su.in;
-        sa.sin_family = AF_INET;
-        sa.sin_addr = pktinfo->ipi_addr;
-        return res;
-      }
-    }
-    return {};
-  case AF_INET6:
-    for (auto cmsg = CMSG_FIRSTHDR(msg); cmsg; cmsg = CMSG_NXTHDR(msg, cmsg)) {
-      if (cmsg->cmsg_level == IPPROTO_IPV6 && cmsg->cmsg_type == IPV6_PKTINFO) {
-        auto pktinfo = reinterpret_cast<in6_pktinfo *>(CMSG_DATA(cmsg));
-        Address res{};
-        res.ifindex = pktinfo->ipi6_ifindex;
-        res.len = sizeof(res.su.in6);
-        auto &sa = res.su.in6;
-        sa.sin6_family = AF_INET6;
-        sa.sin6_addr = pktinfo->ipi6_addr;
-        return res;
-      }
-    }
-    return {};
-  }
-  return {};
-}
-
-void set_port(Address &dst, Address &src) {
-  switch (dst.su.storage.ss_family) {
-  case AF_INET:
-    assert(AF_INET == src.su.storage.ss_family);
-    dst.su.in.sin_port = src.su.in.sin_port;
-    return;
-  case AF_INET6:
-    assert(AF_INET6 == src.su.storage.ss_family);
-    dst.su.in6.sin6_port = src.su.in6.sin6_port;
-    return;
-  default:
-    assert(0);
-  }
-}
-
 #ifdef HAVE_LINUX_RTNETLINK_H
 
 struct nlmsg {
@@ -367,19 +318,5 @@ int get_local_addr(in_addr_union &iau, const Address &remote_addr) {
 }
 
 #endif // HAVE_LINUX_NETLINK_H
-
-bool addreq(const sockaddr *sa, const in_addr_union &iau) {
-  switch (sa->sa_family) {
-  case AF_INET:
-    return memcmp(&reinterpret_cast<const sockaddr_in *>(sa)->sin_addr, &iau.in,
-                  sizeof(iau.in)) == 0;
-  case AF_INET6:
-    return memcmp(&reinterpret_cast<const sockaddr_in6 *>(sa)->sin6_addr,
-                  &iau.in6, sizeof(iau.in6)) == 0;
-  default:
-    assert(0);
-    abort();
-  }
-}
 
 } // namespace ngtcp2
