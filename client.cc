@@ -21,6 +21,7 @@
 #include "debug.h"
 #include "util.h"
 #include "shared.h"
+#include "tc_http/tc_http.h"
 
 using namespace ngtcp2;
 using namespace std::literals;
@@ -1658,6 +1659,8 @@ int main(int argc, char **argv) {
   }
 
   t.join();
+
+  taf::TC_HttpRequest req;
 
   return EXIT_SUCCESS;
 }

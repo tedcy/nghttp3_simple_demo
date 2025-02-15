@@ -5,7 +5,8 @@ INCLUDES = -I. -I/root/http3/ngtcp2 -I/root/http3/ngtcp2/lib/includes -I/root/ht
            -I/root/http3/ngtcp2/../libev/build/include \
            -I/root/http3/nghttp3/build/include \
            -I/root/http3/ngtcp2/../boringssl/build \
-           -I/root/http3/ngtcp2/../boringssl/include
+           -I/root/http3/ngtcp2/../boringssl/include \
+		   -I./tc_http
 LDFLAGS = -L/root/http3/ngtcp2/../libev/build/lib \
           -L/root/http3/nghttp3/build/lib \
           -L/root/http3/ngtcp2/../boringssl/build/ssl \
@@ -21,6 +22,7 @@ RPATH = -Wl,-rpath -Wl,/root/http3/ngtcp2/lib/.libs \
 SRC = client.cc client_base.cc debug.cc util.cc shared.cc \
       tls_client_context_boringssl.cc tls_client_session_boringssl.cc \
       tls_session_base_openssl.cc util_openssl.cc tc_epoller.cc
+SRC += tc_http/tc_clientsocket.cc tc_http/tc_common.cc tc_http/tc_ex.cc tc_http/tc_http.cc tc_http/tc_socket.cc
 OBJ = $(SRC:.cc=.o)
 
 # 最终目标文件
