@@ -60,23 +60,27 @@ using namespace ngtcp2;
 struct Stream {
   Stream(shared_ptr<taf::TC_HttpRequest> &req, int64_t stream_id);
   ~Stream() {
-    taf::TC_HttpResponse rsp;
-    rsp.decode(rspBuffer);
-    cout << "stream_id: " << stream_id << " data: " << rspBuffer
+    cout << "stream_id: " << stream_id << " data: " << data
          << " status: " << rsp.getStatus() << " content: " << rsp.getContent()
          << endl;
+    for (auto &kv : rsp.getHeaders()) {
+        cout << "stream_id: " << stream_id << " " << kv.first << ": "
+             << kv.second << endl;
+    }
   }
 
-  shared_ptr<taf::TC_HttpRequest> req;
-  string rspBuffer;
   int64_t stream_id;
+  //for rsp
+  taf::TC_HttpResponse rsp;
+  string data;
 
-  //for req str
+  //for req
+  shared_ptr<taf::TC_HttpRequest> req;
   string method;
   string authority;
   string path;
   string content_length;
-  vector<string> keys;
+  list<string> keys;
 };
 
 class Client;
@@ -146,6 +150,7 @@ public:
   int extend_max_stream_data(int64_t stream_id, uint64_t max_data);
   int stop_sending(int64_t stream_id, uint64_t app_error_code);
   int reset_stream(int64_t stream_id, uint64_t app_error_code);
+  int http_end_stream(int64_t stream_id);
   int http_stream_close(int64_t stream_id, uint64_t app_error_code);
 
   void on_send_blocked(const Endpoint &ep, const ngtcp2_addr &remote_addr,

@@ -1070,6 +1070,7 @@ namespace {
 nghttp3_ssize read_data(nghttp3_conn *conn, int64_t stream_id, nghttp3_vec *vec,
                         size_t veccnt, uint32_t *pflags, void *user_data,
                         void *stream_user_data) {
+  //TODO 记得改tc_http的getContent实现，必须返回非临时变量
   const Stream *stream = static_cast<Stream *>(stream_user_data);
   vec[0].base = (uint8_t *)stream->req->getContent().c_str();
   vec[0].len = stream->req->getContentLength();
@@ -1093,7 +1094,6 @@ int Client::submit_http_request(Stream *stream) {
       util::make_nv_nn(":authority", stream->authority),
       util::make_nv_nn(":scheme", "https"),
       util::make_nv_nn(":path", stream->path),
-    //   util::make_nv_nn("user-agent", "nghttp3/ngtcp2 client"),
   };
 
   for (auto &[key, value] : req.getHeaders()) {
@@ -1104,11 +1104,6 @@ int Client::submit_http_request(Stream *stream) {
     nva.push_back(util::make_nv_nn(stream->keys.back(), value));
   }
   
-  if (!req.getContent().empty()) {
-      stream->content_length = req.getContentLength();
-      nva.push_back(util::make_nv_nc("content-length", stream->content_length));
-  }
-
   if (!config.quiet) {
     debug::print_http_request_headers(stream->stream_id, nva.data(), nva.size());
   }
@@ -1193,7 +1188,7 @@ void Client::http_write_data(int64_t stream_id, const uint8_t *data,
 
   auto &stream = (*it).second;
 
-  stream->rspBuffer += std::string((char *)data, datalen);
+  stream->data += std::string((char *)data, datalen);
 }
 
 namespace {
@@ -1211,6 +1206,24 @@ int http_recv_header(nghttp3_conn *conn, int64_t stream_id, int32_t token,
   if (!config.quiet) {
     debug::print_http_header(stream_id, name, value, flags);
   }
+  const Stream *stream = static_cast<Stream *>(stream_user_data);
+  nghttp3_vec nameBuf = nghttp3_rcbuf_get_buf(name);
+  nghttp3_vec valueBuf = nghttp3_rcbuf_get_buf(value);
+  auto &rsp = const_cast<Stream *>(stream)->rsp;
+  if (nameBuf.len == 0) {
+      return 0;
+  }
+  if (nameBuf.base[0] == ':') {
+      if (memcmp(nameBuf.base, ":status", nameBuf.len) == 0) {
+          int status =
+              atoi(std::string((char *)valueBuf.base, valueBuf.len).c_str());
+          rsp.setStatus(status);
+          return 0;
+      }
+      return 0;
+  }
+  rsp.setHeader(std::string((char *)nameBuf.base, nameBuf.len),
+                std::string((char *)valueBuf.base, valueBuf.len));
   return 0;
 }
 } // namespace
@@ -1295,6 +1308,29 @@ int Client::reset_stream(int64_t stream_id, uint64_t app_error_code) {
 }
 
 namespace {
+int http_end_stream(nghttp3_conn *conn, int64_t stream_id, void *user_data,
+                    void *stream_user_data) {
+    auto *c = static_cast<Client *>(user_data);
+    if (c->http_end_stream(stream_id) != 0) {
+        return NGHTTP3_ERR_CALLBACK_FAILURE;
+    }
+
+    return 0; // 正常处理
+}
+}
+int Client::http_end_stream(int64_t stream_id) {
+    auto it = streams_.find(stream_id); 
+    if (it != streams_.end()) {
+        auto &stream = (*it).second;
+        stream->rsp.setContent(stream->data);
+        if (!config.quiet) {
+            std::cout << "stream " << stream_id << " ended" << std::endl;
+        }
+    }
+    return 0;
+}
+
+namespace {
 int http_stream_close(nghttp3_conn *conn, int64_t stream_id,
                       uint64_t app_error_code, void *conn_user_data,
                       void *stream_user_data) {
@@ -1351,7 +1387,7 @@ int Client::setup_httpconn() {
       ::http_recv_trailer,
       ::http_end_trailers,
       ::http_stop_sending,
-      nullptr, // end_stream
+      ::http_end_stream,
       ::http_reset_stream,
       nullptr, // shutdown
   };
@@ -1496,12 +1532,17 @@ void print_usage() {
   <URI>       Remote URI)" << std::endl;
 }
 int parse_uri(taf::TC_HttpRequest &req, const string &url,
-              const string &http_method, const string &data) {
+              const string &http_method,
+              const std::vector<std::pair<std::string, std::string>> &headers,
+              const string &data) {
     if (http_method == "POST") {
         req.setPostRequest(url, data);
     }
     if (http_method == "GET") {
         req.setGetRequest(url);
+    }
+    for (const auto &[name, value] : headers) {
+        req.setHeader(name, value);
     }
     return 0;
 }
@@ -1579,7 +1620,7 @@ int parse_requests(int argc, char **argv,
         auto uri = argv[i];
         cout << uri << endl;
         taf::TC_HttpRequest req;
-        if (parse_uri(req, uri, http_method, data) != 0) {
+        if (parse_uri(req, uri, http_method, headers, data) != 0) {
             std::cerr << "Could not parse URI: " << uri << std::endl;
             return -1;
         }
