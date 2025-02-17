@@ -41,8 +41,6 @@
 #include <ngtcp2/ngtcp2.h>
 #include <nghttp3/nghttp3.h>
 
-#include <ev.h>
-
 namespace ngtcp2 {
 
 namespace util {

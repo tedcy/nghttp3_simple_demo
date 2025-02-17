@@ -810,7 +810,7 @@ void Client::update_timer() {
 
   if (expiry <= now) {
     if (!config.quiet) {
-      auto t = static_cast<ev_tstamp>(now - expiry) / NGTCP2_SECONDS;
+      auto t = static_cast<double>(now - expiry) / NGTCP2_SECONDS;
       std::cerr << "Timer has already expired: " << std::fixed << t << "s"
                 << std::defaultfloat << std::endl;
     }
@@ -820,7 +820,7 @@ void Client::update_timer() {
     return;
   }
 
-  auto t = static_cast<ev_tstamp>(expiry - now) / NGTCP2_MILLISECONDS;
+  auto t = static_cast<double>(expiry - now) / NGTCP2_MILLISECONDS;
 //   if (!config.quiet) {
 //     std::cerr << "Set timer=" << std::fixed << t << "ms" << std::defaultfloat
 //               << std::endl;
