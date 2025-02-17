@@ -4,11 +4,8 @@
 #include <iostream>
 #include <algorithm>
 #include <memory>
-#include <fstream>
-#include <thread>
 
 #include <unistd.h>
-#include <getopt.h>
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <fcntl.h>
@@ -30,7 +27,6 @@ auto randgen = util::make_mt19937();
 
 constexpr size_t max_preferred_versionslen = 4;
 
-EventLoop g_loop;
 } // namespace
 
 Config config{};
@@ -128,10 +124,9 @@ void Client::Timer::onTimeout() {
   timeoutcb(client_);
 }
 
-Client::Client(EventLoop *loop, uint32_t client_chosen_version,
+Client::Client(uint32_t client_chosen_version,
                uint32_t original_version)
     : remote_addr_{},
-      loop_(loop),
       httpconn_(nullptr),
       addr_(nullptr),
       port_(nullptr),
@@ -155,9 +150,9 @@ void Client::disconnect() {
 
   handle_error();
 
-  loop_->cancelTimer(timer_.get());
+  cancelTimerFunc_(timer_.get());
 
-  removeConnFunc_(this);
+  removeConnFunc_(getId());
 }
 
 namespace {
@@ -672,7 +667,7 @@ int Client::on_write() {
       return 0;
     }
 
-    loop_->setEvent(this, EPOLLIN);
+    setEventFunc_(getFd(), getId(), EPOLLIN);
   }
 
   if (auto rv = write_streams(); rv != 0) {
@@ -826,7 +821,7 @@ void Client::update_timer() {
 //               << std::endl;
 //   }
   t = max(t, 1.0);
-  loop_->setTimer(timer_, t);
+  setTimerFunc_(timer_.get(), t);
 }
 
 namespace {
@@ -924,7 +919,7 @@ void Client::on_send_blocked(const Endpoint &ep, const ngtcp2_addr &remote_addr,
 }
 
 void Client::start_wev_endpoint(const Endpoint &ep) {
-  loop_->setEvent(this, EPOLLIN | EPOLLOUT);
+  setEventFunc_(getFd(), getId(), EPOLLIN | EPOLLOUT);
 }
 
 int Client::send_blocked_packet() {
@@ -1472,214 +1467,52 @@ void Client::process(int events) {
     if (events & EPOLLOUT) writecb(this);
 }
 
-TC_HttpConnPool::onCreateConnFunc EventLoop::getCreateConnFunc() {
-    return [this](const TC_HttpConnKey &key) {
-        shared_ptr<Client> c;
-        sockaddr_in remote_addr, local_addr;
+void* createHttp3Conn(EventLoop *loop, const string& targetAddr, uint32_t targetPort) {
+    Client *c = nullptr;
+    sockaddr_in remote_addr, local_addr;
 
-        if (get_remote_addr(remote_addr, key.targetAddr.c_str(),
-                            to_string(key.targetPort).c_str()) != 0) {
-            return c;
-        }
-
-        int fd = udp_sock(AF_INET);
-        if (fd == -1) {
-            std::cerr << "Could not create socket" << std::endl;
-            return c;
-        }
-
-        if (TC_Socket::get_local_addr(local_addr, fd) != 0) {
-            std::cerr << "Could not get local address" << std::endl;
-            close(fd);
-            return c;
-        }
-
-        c = make_shared<Client>(this, NGTCP2_PROTO_VER_V1, NGTCP2_PROTO_VER_V1);
-        if (c->init(fd, local_addr, remote_addr, key.targetAddr.c_str(),
-                    to_string(key.targetPort).c_str()) != 0) {
-            c = nullptr;
-            return c;
-        }
-        if (auto rv = c->on_write(); rv != 0) {
-            c = nullptr;
-            return c;
-        }
-        setEvent(c.get(), EPOLLIN | EPOLLOUT);
-
+    if (get_remote_addr(remote_addr, targetAddr.c_str(),
+                        to_string(targetPort).c_str()) != 0) {
         return c;
-    };
-}
-
-namespace {
-std::string readFileToString(const char* path) {
-    // 创建输入文件流
-    std::ifstream file(path, std::ios::in | std::ios::binary);
-    if (!file) {
-        return "";
     }
 
-    // 使用 stringstream 将文件内容读入 string
-    std::ostringstream contents;
-    contents << file.rdbuf();  // 读取文件的整个缓冲区
-    file.close();
+    int fd = udp_sock(AF_INET);
+    if (fd == -1) {
+        std::cerr << "Could not create socket" << std::endl;
+        return c;
+    }
 
-    return contents.str();  // 返回文件内容
+    if (TC_Socket::get_local_addr(local_addr, fd) != 0) {
+        std::cerr << "Could not get local address" << std::endl;
+        close(fd);
+        return c;
+    }
+
+    c = new Client(NGTCP2_PROTO_VER_V1, NGTCP2_PROTO_VER_V1);
+    if (c->init(fd, local_addr, remote_addr, targetAddr.c_str(),
+                to_string(targetPort).c_str()) != 0) {
+        c = nullptr;
+        return c;
+    }
+    if (auto rv = c->on_write(); rv != 0) {
+        c = nullptr;
+        return c;
+    }
+    c->initEvent();
+
+    return c;
 }
 
-void print_usage() {
-  std::cerr << "Usage: client [OPTIONS] [<URI>...]" << std::endl;
-  std::cerr << R"(
-  <URI>       Remote URI)" << std::endl;
-}
-int parse_uri(taf::TC_HttpRequest &req, const string &url,
-              const string &http_method,
-              const std::vector<std::pair<std::string, std::string>> &headers,
-              const string &data) {
-    if (http_method == "POST") {
-        req.setPostRequest(url, data);
+void destroyHttp3Conn(void *conn) {
+    if (conn) {
+        delete static_cast<Client *>(conn);
     }
-    if (http_method == "GET") {
-        req.setGetRequest(url);
-    }
-    for (const auto &[name, value] : headers) {
-        req.setHeader(name, value);
-    }
-    return 0;
 }
 
-int parse_requests(int argc, char **argv,
-                   vector<shared_ptr<taf::TC_HttpRequest>> &requests) {
-    string data;
-    string http_method = "GET";
-    std::vector<std::pair<std::string, std::string>> headers;
-
-    for (;;) {
-        if (argc < 2) {
-            std::cerr << "Too few arguments" << std::endl;
-            print_usage();
-            exit(EXIT_FAILURE);
-        }
-        static int flag = 0;
-        constexpr static option long_opts[] = {
-            {"data", required_argument, nullptr, 'd'},
-            {"http-method", required_argument, nullptr, 'm'},
-            {"header", required_argument, &flag, 1},
-            {nullptr, 0, nullptr, 0},
-        };
-
-        auto optidx = 0;
-        auto c = getopt_long(argc, argv, "d:m:", long_opts, &optidx);
-        if (c == -1) {
-            break;
-        }
-        switch (c) {
-            case 'd': {
-                // --data
-                char *data_path = optarg;
-                data = readFileToString(data_path);
-                break;
-            }
-            case 'm':
-                // --http-method
-                http_method = optarg;
-                break;
-            case 0:
-                switch (flag) {
-                    case 1: {
-                        // 添加用户指定的请求头
-                        std::string header_line = optarg;
-                        auto colon_pos = header_line.find(':');
-                        if (colon_pos == std::string::npos) {
-                            std::cerr
-                                << "Invalid header format: " << header_line
-                                << std::endl;
-                            return -1;
-                        }
-                        auto name = header_line.substr(0, colon_pos);
-                        auto value = header_line.substr(colon_pos + 1);
-                        // 去除可能的空格
-                        while (!value.empty() &&
-                               (value[0] == ' ' || value[0] == '\t')) {
-                            value.erase(0, 1);
-                        }
-                        // 将名称转换为小写
-                        std::transform(
-                            name.begin(), name.end(), name.begin(),
-                            [](unsigned char c) { return std::tolower(c); });
-                        headers.push_back({name, value});
-                        break;
-                    }
-                    default:
-                        break;
-                }
-            default:
-                break;
-        }
-    }
-    for (size_t i = optind; i < argc; ++i) {
-        auto uri = argv[i];
-        cout << uri << endl;
-        taf::TC_HttpRequest req;
-        if (parse_uri(req, uri, http_method, headers, data) != 0) {
-            std::cerr << "Could not parse URI: " << uri << std::endl;
-            return -1;
-        }
-        requests.emplace_back(make_shared<taf::TC_HttpRequest>(std::move(req)));
-    }
-    return 0;
-}
-} // namespace
-
-namespace {
-void config_set_default(Config &config) {
-  config = Config{};
-  config.timeout = 0 * NGTCP2_SECONDS;
-  config.max_data = 15_m;
-  config.max_stream_data_bidi_local = 6_m;
-  config.max_stream_data_bidi_remote = 6_m;
-  config.max_stream_data_uni = 6_m;
-  config.max_window = 24_m;
-  config.max_stream_window = 16_m;
-  config.max_streams_uni = 100;
-  config.cc_algo = NGTCP2_CC_ALGO_CUBIC;
-  config.initial_rtt = NGTCP2_DEFAULT_INITIAL_RTT;
-  config.handshake_timeout = UINT64_MAX;
-  config.ack_thresh = 2;
-  config.quiet = true;
-//   config.no_quic_dump = true;
-//   config.no_http_dump = true;
-}
-} // namespace
-
-int main(int argc, char **argv) {
-  config_set_default(config);
-  std::vector<shared_ptr<taf::TC_HttpRequest>> requests;
-
-  if (parse_requests(argc, argv, requests) != 0) {
-    exit(EXIT_FAILURE);
-  }
-
+void initConfig() {
   if (util::generate_secret(config.static_secret.data(),
                             config.static_secret.size()) != 0) {
     std::cerr << "Unable to generate static secret" << std::endl;
-    exit(EXIT_FAILURE);
+    abort();
   }
-
-  std::thread t([] {
-    g_loop.run();
-  });
-
-  for (auto &req : requests) {
-    g_loop.doRequest(req);
-  }
-
-  sleep(2);
-
-  for (auto &req : requests) {
-    g_loop.doRequest(req);
-  }
-
-  t.join();
-
-  return EXIT_SUCCESS;
 }

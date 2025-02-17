@@ -7,3 +7,4 @@ test
 *.o
 output
 .cache
+libhttp3.so

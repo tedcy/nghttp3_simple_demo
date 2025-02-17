@@ -1,6 +1,6 @@
 # 设置编译器
 CXX = g++
-CXXFLAGS = -std=c++20 -DHAVE_CONFIG_H -DWITH_EXAMPLE_BORINGSSL -g -O2 -Wunused-function
+CXXFLAGS = -fPIC -std=c++20 -DHAVE_CONFIG_H -DWITH_EXAMPLE_BORINGSSL -g -O2 -Wunused-function
 INCLUDES = -I. -I/root/http3/ngtcp2 -I/root/http3/ngtcp2/lib/includes -I/root/http3/ngtcp2/crypto/includes -I/root/http3/ngtcp2/third-party \
            -I/root/http3/nghttp3/build/include \
            -I/root/http3/ngtcp2/../boringssl/build \
@@ -8,7 +8,8 @@ INCLUDES = -I. -I/root/http3/ngtcp2 -I/root/http3/ngtcp2/lib/includes -I/root/ht
 		   -I./tc_http
 LDFLAGS = -L/root/http3/nghttp3/build/lib \
           -L/root/http3/ngtcp2/../boringssl/build/ssl \
-          -L/root/http3/ngtcp2/../boringssl/build/crypto
+          -L/root/http3/ngtcp2/../boringssl/build/crypto \
+		  -shared -fPIC -Wl,-soname,libhttp3.so
 LIBS = /root/http3/ngtcp2/lib/.libs/libngtcp2.a \
        /root/http3/ngtcp2/third-party/.libs/libhttp-parser.a \
        /root/http3/nghttp3/build/lib/libnghttp3.a \
@@ -19,12 +20,12 @@ RPATH = -Wl,-rpath -Wl,/root/http3/ngtcp2/lib/.libs \
 # 源文件和对象文件定义
 SRC = client.cc client_base.cc debug.cc util.cc shared.cc \
       tls_client_context_boringssl.cc tls_client_session_boringssl.cc \
-      tls_session_base_openssl.cc util_openssl.cc tc_epoller.cc
-SRC += tc_http/tc_clientsocket.cc tc_http/tc_common.cc tc_http/tc_ex.cc tc_http/tc_http.cc tc_http/tc_socket.cc
+      tls_session_base_openssl.cc util_openssl.cc
+SRC += tc_http/tc_clientsocket.cc tc_http/tc_common.cc tc_http/tc_ex.cc tc_http/tc_http.cc tc_http/tc_socket.cc tc_http/tc_epoller.cc
 OBJ = $(SRC:.cc=.o)
 
 # 最终目标文件
-TARGET = test
+TARGET = libhttp3.so
 
 # 默认目标
 all: $(TARGET)

@@ -40,64 +40,65 @@
 #include "tls_client_session.h"
 #include "network.h"
 #include "shared.h"
+#include "template.h"
 
 using namespace ngtcp2;
 
 struct Config {
   // quiet suppresses the output normally shown except for the error
   // messages.
-  bool quiet;
+  bool quiet = true;
   // timeout is an idle timeout for QUIC connection.
-  ngtcp2_duration timeout;
+  ngtcp2_duration timeout = 0 * NGTCP2_SECONDS;
   // no_quic_dump is true if hexdump of QUIC STREAM and CRYPTO data
   // should be disabled.
-  bool no_quic_dump;
+  bool no_quic_dump = false;
   // no_http_dump is true if hexdump of HTTP response body should be
   // disabled.
-  bool no_http_dump;
+  bool no_http_dump = false;
   // max_data is the initial connection-level flow control window.
-  uint64_t max_data;
+  uint64_t max_data = 15_m;
   // max_stream_data_bidi_local is the initial stream-level flow
   // control window for a bidirectional stream that the local endpoint
   // initiates.
-  uint64_t max_stream_data_bidi_local;
+  uint64_t max_stream_data_bidi_local = 6_m;
   // max_stream_data_bidi_remote is the initial stream-level flow
   // control window for a bidirectional stream that the remote
   // endpoint initiates.
-  uint64_t max_stream_data_bidi_remote;
+  uint64_t max_stream_data_bidi_remote = 6_m;
   // max_stream_data_uni is the initial stream-level flow control
   // window for a unidirectional stream.
-  uint64_t max_stream_data_uni;
+  uint64_t max_stream_data_uni = 6_m;
   // max_streams_bidi is the number of the concurrent bidirectional
   // streams.
   uint64_t max_streams_bidi;
   // max_streams_uni is the number of the concurrent unidirectional
   // streams.
-  uint64_t max_streams_uni;
+  uint64_t max_streams_uni = 100;
   // max_window is the maximum connection-level flow control window
   // size if auto-tuning is enabled.
-  uint64_t max_window;
+  uint64_t max_window = 24_m;
   // max_stream_window is the maximum stream-level flow control window
   // size if auto-tuning is enabled.
-  uint64_t max_stream_window;
+  uint64_t max_stream_window = 16_m;
   // static_secret is used to derive keying materials for Stateless
   // Retry token.
   std::array<uint8_t, 32> static_secret;
   // cc_algo is the congestion controller algorithm.
-  ngtcp2_cc_algo cc_algo;
+  ngtcp2_cc_algo cc_algo = NGTCP2_CC_ALGO_CUBIC;
   // initial_rtt is an initial RTT.
-  ngtcp2_duration initial_rtt;
+  ngtcp2_duration initial_rtt = NGTCP2_DEFAULT_INITIAL_RTT;
   // max_udp_payload_size is the maximum UDP payload size that client
   // transmits.
   size_t max_udp_payload_size;
   // handshake_timeout is the period of time before giving up QUIC
   // connection establishment.
-  ngtcp2_duration handshake_timeout;
+  ngtcp2_duration handshake_timeout = UINT64_MAX;
   // no_pmtud disables Path MTU Discovery.
   bool no_pmtud;
   // ack_thresh is the minimum number of the received ACK eliciting
   // packets that triggers immediate acknowledgement.
-  size_t ack_thresh;
+  size_t ack_thresh = 2;
 };
 
 class ClientBase {

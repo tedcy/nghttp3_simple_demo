@@ -20,7 +20,7 @@ export PATH=$PATH:$GOPATH/bin:$GOROOT/bin
 git clone https://boringssl.googlesource.com/boringssl
 cd boringssl
 git checkout b0b1f9dfc583c96d5f91b7f8cdb7efabcf22793b
-../cmake-3.31.4-linux-x86_64/bin/cmake -B build -DCMAKE_POSITION_INDEPENDENT_CODE=ON -DCMAKE_CXX_FLAGS="-Wno-error=format"
+../cmake-3.31.4-linux-x86_64/bin/cmake -B build -DCMAKE_POSITION_INDEPENDENT_CODE=ON -DCMAKE_CXX_FLAGS="-Wno-error=format -Wno-error=ignored-attributes"
 make -j$(nproc) -C build
 cd ..
 
@@ -29,7 +29,7 @@ cd nghttp3
 git checkout v0.15.0
 git submodule update --init --recursive
 autoreconf -i
-./configure --prefix=$PWD/build --enable-lib-only
+./configure --prefix=$PWD/build --enable-lib-only CPPFLAGS="-fPIC" CFLAGS="-g -O2 -fPIC"
 make -j$(nproc) check
 make install
 cd ..
@@ -48,7 +48,7 @@ cd ngtcp2
 git checkout v0.15.0
 git submodule update --init --recursive
 autoreconf -i
-./configure PKG_CONFIG_PATH=$PWD/../nghttp3/build/lib/pkgconfig     BORINGSSL_LIBS="-L$PWD/../boringssl/build/ssl -lssl -L$PWD/../boringssl/build/crypto -lcrypto -lpthread"     BORINGSSL_CFLAGS="-I$PWD/../boringssl/build -I$PWD/../boringssl/include"  --with-boringssl --with-openssl=no LIBEV_LIBS="-L$PWD/../libev/build/lib -lev" LIBEV_CFLAGS="-I$PWD/../libev/build/include" --with-libev
+./configure PKG_CONFIG_PATH=$PWD/../nghttp3/build/lib/pkgconfig     BORINGSSL_LIBS="-L$PWD/../boringssl/build/ssl -lssl -L$PWD/../boringssl/build/crypto -lcrypto -lpthread"     BORINGSSL_CFLAGS="-I$PWD/../boringssl/build -I$PWD/../boringssl/include"  --with-boringssl --with-openssl=no LIBEV_LIBS="-L$PWD/../libev/build/lib -lev" LIBEV_CFLAGS="-I$PWD/../libev/build/include" --with-libev CPPFLAGS="-fPIC" CFLAGS="-g -O2 -fPIC"
 make -j$(nproc) check
 ```
 
