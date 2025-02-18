@@ -124,9 +124,12 @@ void Client::Timer::onTimeout() {
   timeoutcb(client_);
 }
 
-Client::Client(uint32_t client_chosen_version,
-               uint32_t original_version)
-    : remote_addr_{},
+Client::Client(TC_Epoller &epoller,
+               TC_TimeoutQueueSimple<shared_ptr<EventLoopTimer>> &data,
+               uint32_t client_chosen_version, uint32_t original_version)
+    : _epoller(epoller),
+      _data(data),
+      remote_addr_{},
       httpconn_(nullptr),
       addr_(nullptr),
       port_(nullptr),
@@ -150,7 +153,7 @@ void Client::disconnect() {
 
   handle_error();
 
-  cancelTimerFunc_(timer_.get());
+  _data.erase(timer_->getId());
 
   removeConnFunc_(getId());
 }
@@ -667,7 +670,7 @@ int Client::on_write() {
       return 0;
     }
 
-    setEventFunc_(getFd(), getId(), EPOLLIN);
+    setEvent(getFd(), getId(), EPOLLIN);
   }
 
   if (auto rv = write_streams(); rv != 0) {
@@ -821,7 +824,7 @@ void Client::update_timer() {
 //               << std::endl;
 //   }
   t = max(t, 1.0);
-  setTimerFunc_(timer_.get(), t);
+  _data.push(timer_, timer_->getId(), t);
 }
 
 namespace {
@@ -919,7 +922,7 @@ void Client::on_send_blocked(const Endpoint &ep, const ngtcp2_addr &remote_addr,
 }
 
 void Client::start_wev_endpoint(const Endpoint &ep) {
-  setEventFunc_(getFd(), getId(), EPOLLIN | EPOLLOUT);
+  setEvent(getFd(), getId(), EPOLLIN | EPOLLOUT);
 }
 
 int Client::send_blocked_packet() {
@@ -1467,7 +1470,10 @@ void Client::process(int events) {
     if (events & EPOLLOUT) writecb(this);
 }
 
-void* createHttp3Conn(EventLoop *loop, const string& targetAddr, uint32_t targetPort) {
+EXTERN void *createHttp3Conn(
+    TC_Epoller &epoller,
+    TC_TimeoutQueueSimple<shared_ptr<EventLoopTimer>> &data,
+    const string &targetAddr, uint32_t targetPort) {
     Client *c = nullptr;
     sockaddr_in remote_addr, local_addr;
 
@@ -1488,7 +1494,7 @@ void* createHttp3Conn(EventLoop *loop, const string& targetAddr, uint32_t target
         return c;
     }
 
-    c = new Client(NGTCP2_PROTO_VER_V1, NGTCP2_PROTO_VER_V1);
+    c = new Client(epoller, data, NGTCP2_PROTO_VER_V1, NGTCP2_PROTO_VER_V1);
     if (c->init(fd, local_addr, remote_addr, targetAddr.c_str(),
                 to_string(targetPort).c_str()) != 0) {
         c = nullptr;
@@ -1498,21 +1504,37 @@ void* createHttp3Conn(EventLoop *loop, const string& targetAddr, uint32_t target
         c = nullptr;
         return c;
     }
-    c->initEvent();
+    c->setEvent(c->getFd(), c->getId(), EPOLLIN | EPOLLOUT);
 
     return c;
 }
 
-void destroyHttp3Conn(void *conn) {
+EXTERN void destroyHttp3Conn(void *conn) {
     if (conn) {
         delete static_cast<Client *>(conn);
     }
 }
 
-void initConfig() {
+EXTERN void initConfig() {
   if (util::generate_secret(config.static_secret.data(),
                             config.static_secret.size()) != 0) {
     std::cerr << "Unable to generate static secret" << std::endl;
     abort();
   }
+}
+
+EXTERN uint64_t getId(void *conn) {
+    return static_cast<Client *>(conn)->getId();
+}
+EXTERN void check_pushed_requests(void *conn) {
+    static_cast<Client *>(conn)->check_pushed_requests();
+}
+EXTERN void push_request(void *conn, shared_ptr<taf::TC_HttpRequest> &req) {
+    static_cast<Client *>(conn)->push_request(req);
+}
+EXTERN void process(void *conn, int events) {
+    static_cast<Client *>(conn)->process(events);
+}
+EXTERN void setRemoveConnFunc(void *conn, const function<void(uint64_t)> &func) {
+    static_cast<Client *>(conn)->setRemoveConnFunc(func);
 }

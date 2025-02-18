@@ -52,7 +52,7 @@
 #include <list>
 #include <set>
 #include "tc_http/tc_http.h"
-#include "tc_eventloop_timer.h"
+#include "tc_http/tc_eventloop_timer.h"
 
 using namespace ngtcp2;
 
@@ -92,7 +92,9 @@ struct Endpoint {
 class EventLoop;
 class Client : public ClientBase {
 public:
-  Client(uint32_t client_chosen_version,
+  Client(TC_Epoller &epoller,
+         TC_TimeoutQueueSimple<shared_ptr<EventLoopTimer>> &data,
+         uint32_t client_chosen_version,
          uint32_t original_version);
   ~Client();
 
@@ -156,17 +158,10 @@ public:
   void setRemoveConnFunc(const function<void(uint64_t)> &func) {
       removeConnFunc_ = func;
   }
-  void setCancelTimerFunc(const function<void(const EventLoopTimer *)> &func) {
-      cancelTimerFunc_ = func;
-  }
-  void setEventFunc(const function<void(int, int, uint32_t)> &func) {
-      setEventFunc_ = func;
-  }
-  void initEvent() {
-      setEventFunc_(getFd(), getId(), EPOLLIN | EPOLLOUT);
-  }
-  void setTimerFunc(const function<void(const EventLoopTimer *, double)> &func) {
-      setTimerFunc_ = func;
+  void setEvent(int fd, int id, uint32_t event) {
+      // TODO
+      _epoller.add(fd, id, event);
+      _epoller.mod(fd, id, event);
   }
 
 private:
@@ -176,10 +171,9 @@ private:
   }
   uint64_t id_ = generateId();
   TLSClientContext tls_ctx_;
+  TC_Epoller &_epoller;
+  TC_TimeoutQueueSimple<shared_ptr<EventLoopTimer>> &_data;
   function<void(uint64_t)> removeConnFunc_;
-  function<void(const EventLoopTimer *)> cancelTimerFunc_;
-  function<void(int, int, uint32_t)> setEventFunc_;
-  function<void(const EventLoopTimer *, double)> setTimerFunc_;
   // requests contains URIs to request.
   std::list<shared_ptr<taf::TC_HttpRequest>> requests_;
   std::unique_ptr<Endpoint> endpoint_;
@@ -216,7 +210,6 @@ private:
   shared_ptr<Timer> timer_;
 };
 
-void* createHttp3Conn(EventLoop *loop, const string& targetAddr, uint32_t targetPort);
-void destroyHttp3Conn(void *conn);
+#define EXTERN extern "C" __attribute__((visibility("default")))
 
 #endif // CLIENT_H

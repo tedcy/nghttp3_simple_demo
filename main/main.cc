@@ -140,6 +140,8 @@ int main(int argc, char **argv) {
     exit(EXIT_FAILURE);
   }
 
+  Http3Conn::initConfig();
+
   std::thread t([] {
     g_loop.run();
   });

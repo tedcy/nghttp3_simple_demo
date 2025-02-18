@@ -48,7 +48,7 @@ public:
         id2Data_.erase(iter);
         return ptr;
     }
-    bool push(T& ptr, uint32_t uniqId, int timeoutMs) {
+    bool push(const T& ptr, uint32_t uniqId, int timeoutMs) {
         assert(timeoutMs > 0);
         unique_lock<shared_timed_mutex> lock(mtx_);
         if (id2Data_.count(uniqId)) {

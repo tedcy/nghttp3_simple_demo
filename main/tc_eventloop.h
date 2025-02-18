@@ -1,33 +1,92 @@
 #include "tc_http/tc_http.h"
-#include "tc_eventloop_timer.h"
-#include "tc_epoller.h"
-#include "tc_timeout_queue_simple.h"
+#include "tc_http/tc_eventloop_timer.h"
+#include "tc_http/tc_epoller.h"
+#include "tc_http/tc_timeout_queue_simple.h"
+#include <dlfcn.h>
 
-struct Http3Conn {
+struct Http3Lib {
+    Http3Lib() {
+        handle_ = ::dlopen(handlePath_.c_str(),
+                           RTLD_NOW | RTLD_LOCAL | RTLD_DEEPBIND);
+        if (!handle_) {
+            cerr << "dlopen failed|path=" << handlePath_
+                 << "|error=" << dlerror() << endl;
+            abort();
+        }
+    }
+    static void* getHandle() {
+        static Http3Lib instance;
+        return instance.handle_;
+    }
+    static inline string handlePath_ = "../libhttp3.so";
+    void *handle_ = nullptr;
+};
+
+#define Http3LibCallFunc(name, type, ...)                                   \
+    do {                                                                    \
+        using FuncType = type;                                              \
+        auto _func = (FuncType)::dlsym(Http3Lib::getHandle(), #name);       \
+        if (!_func) {                                                       \
+            cerr << "dlsym failed|name=" << #name << "|error=" << dlerror() \
+                 << endl;                                                   \
+            abort();                                                        \
+        }                                                                   \
+        return _func(__VA_ARGS__);                                          \
+    } while (0)
+
+class Http3Conn {
+public:
+    Http3Conn(TC_Epoller &epoller,
+              TC_TimeoutQueueSimple<shared_ptr<EventLoopTimer>> &data,
+              const string &targetAddr, uint32_t targetPort) {
+        connPtr_ = createHttp3Conn(epoller, data, targetAddr, targetPort);
+    }
     ~Http3Conn() {
+        if (connPtr_) {
+            destroyHttp3Conn(connPtr_);
+            connPtr_ = nullptr;
+        }
+    }
+    static void initConfig() {
+        Http3LibCallFunc(initConfig, void (*)());
     }
     using Ptr = std::shared_ptr<Http3Conn>;
     uint64_t getId() const {
+        Http3LibCallFunc(getId, uint64_t (*)(void *), connPtr_);
     }
     void check_pushed_requests() {
-    }
-    void push_request() {
-    }
-    void process(int events) {
+        Http3LibCallFunc(check_pushed_requests, void (*)(void *), connPtr_);
     }
     void push_request(shared_ptr<taf::TC_HttpRequest> &req) {
+        Http3LibCallFunc(push_request,
+                         void (*)(void *, shared_ptr<taf::TC_HttpRequest> &),
+                         connPtr_, req);
+    }
+    void process(int events) {
+        Http3LibCallFunc(process, void (*)(int), events);
     }
     void setRemoveConnFunc(const function<void(uint64_t)> &func) {
+        Http3LibCallFunc(setRemoveConnFunc,
+                         void (*)(void *, const function<void(uint64_t)> &),
+                         connPtr_, func);
     }
-    void setCancelTimerFunc(const function<void(const EventLoopTimer *)> &func) {
+
+private:
+    static void *createHttp3Conn(
+        TC_Epoller &epoller,
+        TC_TimeoutQueueSimple<shared_ptr<EventLoopTimer>> &data,
+        const string &targetAddr, uint32_t targetPort) {
+        Http3LibCallFunc(
+            createHttp3Conn,
+            void *(*)(TC_Epoller &,
+                      TC_TimeoutQueueSimple<shared_ptr<EventLoopTimer>> &,
+                      const string &, uint32_t),
+            epoller, data, targetAddr, targetPort);
     }
-    void setEventFunc(const function<void(int, int, uint32_t)> &func) {
+    static void destroyHttp3Conn(void *conn) {
+        Http3LibCallFunc(destroyHttp3Conn, void (*)(void *), conn);
     }
-    void initEvent() {
-    }
-    void setTimerFunc(const function<void(const EventLoopTimer *, double)> &func) {
-    }
-    void *connPtr_;
+    void *connPtr_ = nullptr;
 };
 
 class TC_HttpConnKey {
@@ -147,12 +206,6 @@ public:
     EventLoop() {
         _epoller.create(1024);
     }
-    void setTimer(shared_ptr<EventLoopTimer> timer, int timeoutMs) {
-        _data.push(timer, timer->getId(), timeoutMs);
-    }
-    void cancelTimer(const EventLoopTimer* timer) {
-        _data.erase(timer->getId());
-    }
     void doRequest(shared_ptr<taf::TC_HttpRequest> reqPtr) {
         string targetAddr;
         uint32_t targetPort = 0;
@@ -161,14 +214,8 @@ public:
                                getCreateConnFunc(),
                                [this](const Http3Conn *conn) {});
     }
-    void setEvent(int fd, int id, uint32_t event) {
-        //TODO
-        _epoller.add(fd, id, event);
-        _epoller.mod(fd, id, event);
-    }
     void run() {
         while (!_terminate) {
-            try {
                 _data.timeout([](auto &ptr) { ptr->onTimeout(); });
                 int waitTime = 10;
                 int64_t now = TNOWMS;
@@ -195,16 +242,13 @@ public:
                 }
 
                 _connPool.idleFunc();
-            } catch (exception &ex) {
-                std::cerr << "[TC_HttpAsync::run] error:" << ex.what() << endl;
-            }
         }
     }
 private:
     TC_HttpConnPool::onCreateConnFunc getCreateConnFunc() {
         return [this](const TC_HttpConnKey &key) {
-            shared_ptr<Http3Conn> c;
-            return c;
+            return make_shared<Http3Conn>(_epoller, _data, key.targetAddr,
+                                          key.targetPort);
         };
     }
     TC_Epoller _epoller;
