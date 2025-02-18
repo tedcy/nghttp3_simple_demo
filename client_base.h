@@ -47,7 +47,7 @@ using namespace ngtcp2;
 struct Config {
   // quiet suppresses the output normally shown except for the error
   // messages.
-  bool quiet = false;
+  bool quiet = true;
   // timeout is an idle timeout for QUIC connection.
   ngtcp2_duration timeout = 0 * NGTCP2_SECONDS;
   // no_quic_dump is true if hexdump of QUIC STREAM and CRYPTO data

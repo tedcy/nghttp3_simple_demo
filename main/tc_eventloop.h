@@ -63,7 +63,7 @@ public:
                          connPtr_, req);
     }
     void process(int events) {
-        Http3LibCallFunc(process, void (*)(int), events);
+        Http3LibCallFunc(process, void (*)(void *, int), connPtr_, events);
     }
     void setRemoveConnFunc(const function<void(uint64_t)> &func) {
         Http3LibCallFunc(setRemoveConnFunc,
@@ -111,11 +111,6 @@ public:
         return os.str();
     }
 };
-
-inline shared_ptr<Http3Conn> createHttp3Conn(const TC_HttpConnKey &key) {
-    shared_ptr<Http3Conn> conn;
-    return conn;
-}
 
 class TC_HttpConnPool {
 public:
@@ -210,9 +205,13 @@ public:
         string targetAddr;
         uint32_t targetPort = 0;
         reqPtr->getHostPort(targetAddr, targetPort);
-        _connPool.asyncGetConn(targetAddr, targetPort, reqPtr,
-                               getCreateConnFunc(),
-                               [this](const Http3Conn *conn) {});
+        _connPool.asyncGetConn(
+            targetAddr, targetPort, reqPtr,
+            [this](const TC_HttpConnKey &key) {
+                return make_shared<Http3Conn>(_epoller, _data, key.targetAddr,
+                                              key.targetPort);
+            },
+            [this](const Http3Conn *conn) {});
     }
     void run() {
         while (!_terminate) {
@@ -245,12 +244,6 @@ public:
         }
     }
 private:
-    TC_HttpConnPool::onCreateConnFunc getCreateConnFunc() {
-        return [this](const TC_HttpConnKey &key) {
-            return make_shared<Http3Conn>(_epoller, _data, key.targetAddr,
-                                          key.targetPort);
-        };
-    }
     TC_Epoller _epoller;
     bool _terminate = false;
     TC_TimeoutQueueSimple<shared_ptr<EventLoopTimer>> _data;

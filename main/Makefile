@@ -1,15 +1,14 @@
 # 设置编译器
 CXX = g++
-CXXFLAGS = -std=c++20 -g -Wunused-function
+CXXFLAGS = -fPIC -std=c++20 -g -O2 -Wunused-function
 INCLUDES = -I. -I..
-#LDFLAGS = -L..
 LIBS = -lpthread
-#RPATH = -Wl,-rpath -Wl,..
 
 # 源文件和对象文件定义
 SRC = main.cc
 SRC += ../tc_http/tc_clientsocket.cc ../tc_http/tc_common.cc ../tc_http/tc_ex.cc ../tc_http/tc_http.cc ../tc_http/tc_socket.cc ../tc_http/tc_epoller.cc
-OBJ = $(SRC:.cc=.o)
+# .o 文件名与当前目录下的目标文件一致
+OBJ = $(notdir $(SRC:.cc=.o))
 
 # 最终目标文件
 TARGET = test
@@ -19,10 +18,13 @@ all: $(TARGET)
 
 # 链接阶段
 $(TARGET): $(OBJ)
-	$(CXX) $(CXXFLAGS) -o $@ $^ $(LDFLAGS) $(LIBS) $(RPATH)
+	$(CXX) $(CXXFLAGS) -o $@ $^ $(LIBS)
 
 # 编译阶段
-%.o: %.cc
+%.o: ../tc_http/%.cc
+	$(CXX) $(CXXFLAGS) $(INCLUDES) -c -o $@ $<
+
+main.o: main.cc
 	$(CXX) $(CXXFLAGS) $(INCLUDES) -c -o $@ $<
 
 # 清理目标文件
