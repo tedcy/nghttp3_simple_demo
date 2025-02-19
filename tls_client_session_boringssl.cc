@@ -29,7 +29,6 @@
 
 #include "tls_client_context_boringssl.h"
 #include "client_base.h"
-#include "template.h"
 #include "util.h"
 
 TLSClientSession::TLSClientSession() {}

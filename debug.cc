@@ -279,14 +279,14 @@ void print_http_response_headers(int64_t stream_id, const nghttp3_nv *nva,
   }
 }
 
-std::string_view secret_title(ngtcp2_crypto_level level) {
+MyStringView secret_title(ngtcp2_crypto_level level) {
   switch (level) {
   case NGTCP2_CRYPTO_LEVEL_EARLY:
-    return "early_traffic"sv;
+    return "early_traffic";
   case NGTCP2_CRYPTO_LEVEL_HANDSHAKE:
-    return "handshake_traffic"sv;
+    return "handshake_traffic";
   case NGTCP2_CRYPTO_LEVEL_APPLICATION:
-    return "application_traffic"sv;
+    return "application_traffic";
   default:
     assert(0);
     abort();

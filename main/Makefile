@@ -1,6 +1,6 @@
 # 设置编译器
 CXX = g++
-CXXFLAGS = -fPIC -std=c++20 -g -O2 -Wunused-function
+CXXFLAGS = -fPIC -std=c++14 -g -O2 -Wunused-function
 INCLUDES = -I. -I..
 LIBS = -lpthread
 

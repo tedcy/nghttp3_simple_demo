@@ -32,11 +32,11 @@
 
 #include <sys/socket.h>
 
-#include <optional>
+#include "optional.h"
 #include <string>
 #include <random>
 #include <unordered_map>
-#include <string_view>
+#include "string_view.h"
 
 #include <ngtcp2/ngtcp2.h>
 #include <nghttp3/nghttp3.h>
@@ -45,29 +45,29 @@ namespace ngtcp2 {
 
 namespace util {
 
-inline nghttp3_nv make_nv(const std::string_view &name,
-                          const std::string_view &value, uint8_t flags) {
+inline nghttp3_nv make_nv(const MyStringView &name,
+                          const MyStringView &value, uint8_t flags) {
   return nghttp3_nv{
-      reinterpret_cast<uint8_t *>(const_cast<char *>(std::data(name))),
-      reinterpret_cast<uint8_t *>(const_cast<char *>(std::data(value))),
+      reinterpret_cast<uint8_t *>(const_cast<char *>(name.data())),
+      reinterpret_cast<uint8_t *>(const_cast<char *>(value.data())),
       name.size(),
       value.size(),
       flags,
   };
 }
 
-inline nghttp3_nv make_nv_cc(const std::string_view &name,
-                             const std::string_view &value) {
+inline nghttp3_nv make_nv_cc(const MyStringView &name,
+                             const MyStringView &value) {
   return make_nv(name, value, NGHTTP3_NV_FLAG_NONE);
 }
 
-inline nghttp3_nv make_nv_nc(const std::string_view &name,
-                             const std::string_view &value) {
+inline nghttp3_nv make_nv_nc(const MyStringView &name,
+                             const MyStringView &value) {
   return make_nv(name, value, NGHTTP3_NV_FLAG_NO_COPY_NAME);
 }
 
-inline nghttp3_nv make_nv_nn(const std::string_view &name,
-                             const std::string_view &value) {
+inline nghttp3_nv make_nv_nn(const MyStringView &name,
+                             const MyStringView &value) {
   return make_nv(name, value,
                  NGHTTP3_NV_FLAG_NO_COPY_NAME | NGHTTP3_NV_FLAG_NO_COPY_VALUE);
 }
@@ -76,13 +76,13 @@ std::string format_hex(uint8_t c);
 
 std::string format_hex(const uint8_t *s, size_t len);
 
-std::string format_hex(const std::string_view &s);
+std::string format_hex(const MyStringView &s);
 
 template <size_t N> std::string format_hex(const uint8_t (&s)[N]) {
   return format_hex(s, N);
 }
 
-std::string decode_hex(const std::string_view &s);
+std::string decode_hex(const MyStringView &s);
 
 // format_durationf formats |ns| in human readable manner.  |ns| must
 // be nanoseconds resolution.  This function uses the largest unit so
@@ -141,7 +141,7 @@ bool istarts_with(InputIterator1 first1, InputIterator1 last1,
   return std::equal(first2, last2, first1, CaseCmp());
 }
 
-template <typename S, typename T> bool istarts_with(const S &a, const T &b) {
+inline bool istarts_with(const std::string &a, const MyStringView &b) {
   return istarts_with(a.begin(), a.end(), b.begin(), b.end());
 }
 
@@ -153,7 +153,7 @@ std::string make_cid_key(const uint8_t *cid, size_t cidlen);
 std::string straddr(const sockaddr *sa, socklen_t salen);
 
 // strccalgo stringifies |cc_algo|.
-std::string_view strccalgo(ngtcp2_cc_algo cc_algo);
+MyStringView strccalgo(ngtcp2_cc_algo cc_algo);
 
 template <typename T, size_t N>
 bool streq_l(const T (&a)[N], const nghttp3_vec &b) {
@@ -210,8 +210,8 @@ template <typename InputIt> std::string b64encode(InputIt first, InputIt last) {
 // read_mime_types reads "MIME media types and the extensions" file
 // denoted by |filename| and returns the mapping of extension to MIME
 // media type.
-std::optional<std::unordered_map<std::string, std::string>>
-read_mime_types(const std::string_view &filename);
+MyOptional<std::unordered_map<std::string, std::string>>
+read_mime_types(const MyStringView &filename);
 
 // format_uint converts |n| into string.
 template <typename T> std::string format_uint(T n) {
@@ -255,18 +255,18 @@ std::string format_duration(ngtcp2_duration n);
 
 // parse_uint parses |s| as 64-bit unsigned integer.  If it cannot
 // parse |s|, the return value does not contain a value.
-std::optional<uint64_t> parse_uint(const std::string_view &s);
+MyOptional<uint64_t> parse_uint(const MyStringView &s);
 
 // parse_uint_iec parses |s| as 64-bit unsigned integer.  It accepts
 // IEC unit letter (either "G", "M", or "K") in |s|.  If it cannot
 // parse |s|, the return value does not contain a value.
-std::optional<uint64_t> parse_uint_iec(const std::string_view &s);
+MyOptional<uint64_t> parse_uint_iec(const MyStringView &s);
 
 // parse_duration parses |s| as 64-bit unsigned integer.  It accepts a
 // unit (either "h", "m", "s", "ms", "us", or "ns") in |s|.  If no
 // unit is present, the unit "s" is assumed.  If it cannot parse |s|,
 // the return value does not contain a value.
-std::optional<uint64_t> parse_duration(const std::string_view &s);
+MyOptional<uint64_t> parse_duration(const MyStringView &s);
 
 // generate_secure_random generates a cryptographically secure pseudo
 // random data of |datalen| bytes and stores to the buffer pointed by
@@ -281,7 +281,7 @@ int generate_secret(uint8_t *secret, size_t secretlen);
 // normalize_path removes ".." by consuming a previous path component.
 // It also removes ".".  It assumes that |path| starts with "/".  If
 // it cannot consume a previous path component, it just removes "..".
-std::string normalize_path(const std::string_view &path);
+std::string normalize_path(const MyStringView &path);
 
 constexpr bool is_digit(const char c) { return '0' <= c && c <= '9'; }
 
@@ -332,28 +332,18 @@ int make_socket_nonblocking(int fd);
 
 int create_nonblock_socket(int domain, int type, int protocol);
 
-std::optional<std::string> read_token(const std::string_view &filename);
-int write_token(const std::string_view &filename, const uint8_t *token,
+MyOptional<std::string> read_token(const MyStringView &filename);
+int write_token(const MyStringView &filename, const uint8_t *token,
                 size_t tokenlen);
 
-std::optional<std::string>
-read_transport_params(const std::string_view &filename);
-int write_transport_params(const std::string_view &filename,
+MyOptional<std::string>
+read_transport_params(const MyStringView &filename);
+int write_transport_params(const MyStringView &filename,
                            const uint8_t *data, size_t datalen);
 
 const char *crypto_default_ciphers();
 
 const char *crypto_default_groups();
-
-// split_str parses delimited strings in |s| and returns substrings
-// delimited by |delim|.  The any white spaces around substring are
-// treated as a part of substring.
-std::vector<std::string_view> split_str(const std::string_view &s,
-                                        char delim = ',');
-
-// parse_version parses |s| to get 4 byte QUIC version.  |s| must be a
-// hex string and must start with "0x" (.e.g, 0x00000001).
-std::optional<uint32_t> parse_version(const std::string_view &s);
 
 } // namespace util
 

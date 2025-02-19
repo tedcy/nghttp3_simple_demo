@@ -394,7 +394,8 @@ int extend_max_stream_data(ngtcp2_conn *conn, int64_t stream_id,
 } // namespace
 
 int Client::extend_max_stream_data(int64_t stream_id, uint64_t max_data) {
-  if (auto rv = nghttp3_conn_unblock_stream(httpconn_, stream_id); rv != 0) {
+  auto rv = nghttp3_conn_unblock_stream(httpconn_, stream_id);
+  if (rv != 0) {
     std::cerr << "nghttp3_conn_unblock_stream: " << nghttp3_strerror(rv)
               << std::endl;
     return -1;
@@ -572,9 +573,9 @@ int Client::feed_data(const Endpoint &ep, const sockaddr *sa, socklen_t salen,
       },
       const_cast<Endpoint *>(&ep),
   };
-  if (auto rv = ngtcp2_conn_read_pkt(conn_, &path, pi, data, datalen,
+  auto rv = ngtcp2_conn_read_pkt(conn_, &path, pi, data, datalen,
                                      util::timestamp());
-      rv != 0) {
+  if(rv != 0) {
     std::cerr << "ngtcp2_conn_read_pkt: " << ngtcp2_strerror(rv) << std::endl;
     if (!last_error_.error_code) {
       if (rv == NGTCP2_ERR_CRYPTO) {
@@ -592,7 +593,7 @@ int Client::feed_data(const Endpoint &ep, const sockaddr *sa, socklen_t salen,
 
 int Client::on_read() {
   const Endpoint &ep = *endpoint_;
-  std::array<uint8_t, 64_k> buf;
+  std::array<uint8_t, 64 * LIBHTTP3_K> buf;
   sockaddr_storage ss;
   sockaddr* sa = reinterpret_cast<sockaddr*>(&ss);
   size_t pktcnt = 0;
@@ -649,7 +650,8 @@ int Client::on_read() {
 
 int Client::handle_expiry() {
   auto now = util::timestamp();
-  if (auto rv = ngtcp2_conn_handle_expiry(conn_, now); rv != 0) {
+  auto rv = ngtcp2_conn_handle_expiry(conn_, now); 
+  if (rv != 0) {
     std::cerr << "ngtcp2_conn_handle_expiry: " << ngtcp2_strerror(rv)
               << std::endl;
     ngtcp2_ccerr_set_liberr(&last_error_, rv, nullptr, 0);
@@ -662,7 +664,8 @@ int Client::handle_expiry() {
 
 int Client::on_write() {
   if (tx_.send_blocked) {
-    if (auto rv = send_blocked_packet(); rv != 0) {
+    auto rv = send_blocked_packet(); 
+    if (rv != 0) {
       return rv;
     }
 
@@ -673,7 +676,8 @@ int Client::on_write() {
     setEvent(getFd(), getId(), EPOLLIN);
   }
 
-  if (auto rv = write_streams(); rv != 0) {
+  auto rv = write_streams(); 
+  if (rv != 0) {
     return rv;
   }
 
@@ -736,9 +740,9 @@ int Client::write_streams() {
         continue;
       case NGTCP2_ERR_WRITE_MORE:
         assert(ndatalen >= 0);
-        if (auto rv =
+        auto rv =
                 nghttp3_conn_add_write_offset(httpconn_, stream_id, ndatalen);
-            rv != 0) {
+        if (rv != 0) {
           std::cerr << "nghttp3_conn_add_write_offset: " << nghttp3_strerror(rv)
                     << std::endl;
           ngtcp2_ccerr_set_application_error(
@@ -758,9 +762,9 @@ int Client::write_streams() {
       disconnect();
       return -1;
     } else if (ndatalen >= 0) {
-      if (auto rv =
+      auto rv =
               nghttp3_conn_add_write_offset(httpconn_, stream_id, ndatalen);
-          rv != 0) {
+      if(rv != 0) {
         std::cerr << "nghttp3_conn_add_write_offset: " << nghttp3_strerror(rv)
                   << std::endl;
         ngtcp2_ccerr_set_application_error(
@@ -779,9 +783,9 @@ int Client::write_streams() {
 
     auto &ep = *static_cast<Endpoint *>(ps.path.user_data);
 
-    if (auto rv =
+    auto rv =
             send_packet(ep, ps.path.remote, pi.ecn, tx_.data.data(), nwrite);
-        rv != NETWORK_ERR_OK) {
+    if (rv != NETWORK_ERR_OK) {
       if (rv != NETWORK_ERR_SEND_BLOCKED) {
         ngtcp2_ccerr_set_liberr(&last_error_, NGTCP2_ERR_INTERNAL, nullptr, 0);
         disconnect();
@@ -1016,8 +1020,8 @@ int Client::on_stream_close(int64_t stream_id, uint64_t app_error_code) {
 
 int Client::on_stream_reset(int64_t stream_id) {
   if (httpconn_) {
-    if (auto rv = nghttp3_conn_shutdown_stream_read(httpconn_, stream_id);
-        rv != 0) {
+    auto rv = nghttp3_conn_shutdown_stream_read(httpconn_, stream_id);
+    if (rv != 0) {
       std::cerr << "nghttp3_conn_shutdown_stream_read: " << nghttp3_strerror(rv)
                 << std::endl;
       return -1;
@@ -1031,8 +1035,8 @@ int Client::on_stream_stop_sending(int64_t stream_id) {
     return 0;
   }
 
-  if (auto rv = nghttp3_conn_shutdown_stream_read(httpconn_, stream_id);
-      rv != 0) {
+  auto rv = nghttp3_conn_shutdown_stream_read(httpconn_, stream_id);
+  if(rv != 0) {
     std::cerr << "nghttp3_conn_shutdown_stream_read: " << nghttp3_strerror(rv)
               << std::endl;
     return -1;
@@ -1046,8 +1050,8 @@ int Client::on_extend_max_streams() {
 
   for (auto iter = requests_.begin(); iter != requests_.end();) {
     auto &req = *iter;
-    if (auto rv = ngtcp2_conn_open_bidi_stream(conn_, &stream_id, nullptr);
-        rv != 0) {
+    auto rv = ngtcp2_conn_open_bidi_stream(conn_, &stream_id, nullptr);
+    if(rv != 0) {
       assert(NGTCP2_ERR_STREAM_ID_BLOCKED == rv);
       break;
     }
@@ -1094,7 +1098,9 @@ int Client::submit_http_request(Stream *stream) {
       util::make_nv_nn(":path", stream->path),
   };
 
-  for (auto &[key, value] : req.getHeaders()) {
+  for (auto &kv : req.getHeaders()) {
+    auto &key = kv.first;
+    auto &value = kv.second;
     auto lowerKey = key;
     std::transform(lowerKey.begin(), lowerKey.end(), lowerKey.begin(),
                    [](unsigned char c) { return std::tolower(c); });
@@ -1109,10 +1115,10 @@ int Client::submit_http_request(Stream *stream) {
   nghttp3_data_reader dr{};
   dr.read_data = read_data;
 
-  if (auto rv = nghttp3_conn_submit_request(
+  auto rv = nghttp3_conn_submit_request(
           httpconn_, stream->stream_id, nva.data(), nva.size(),
           req.getContent().empty() ? nullptr : &dr, (void*)stream);
-      rv != 0) {
+  if(rv != 0) {
     std::cerr << "nghttp3_conn_submit_request: " << nghttp3_strerror(rv)
               << std::endl;
     return -1;
@@ -1141,8 +1147,8 @@ int Client::recv_stream_data(uint32_t flags, int64_t stream_id,
 }
 
 int Client::acked_stream_data_offset(int64_t stream_id, uint64_t datalen) {
-  if (auto rv = nghttp3_conn_add_ack_offset(httpconn_, stream_id, datalen);
-      rv != 0) {
+  auto rv = nghttp3_conn_add_ack_offset(httpconn_, stream_id, datalen);
+  if(rv != 0) {
     std::cerr << "nghttp3_conn_add_ack_offset: " << nghttp3_strerror(rv)
               << std::endl;
     return -1;
@@ -1272,9 +1278,9 @@ int http_stop_sending(nghttp3_conn *conn, int64_t stream_id,
 } // namespace
 
 int Client::stop_sending(int64_t stream_id, uint64_t app_error_code) {
-  if (auto rv =
+  auto rv =
           ngtcp2_conn_shutdown_stream_read(conn_, stream_id, app_error_code);
-      rv != 0) {
+  if(rv != 0) {
     std::cerr << "ngtcp2_conn_shutdown_stream_read: " << ngtcp2_strerror(rv)
               << std::endl;
     return -1;
@@ -1295,9 +1301,9 @@ int http_reset_stream(nghttp3_conn *conn, int64_t stream_id,
 } // namespace
 
 int Client::reset_stream(int64_t stream_id, uint64_t app_error_code) {
-  if (auto rv =
+  auto rv =
           ngtcp2_conn_shutdown_stream_write(conn_, stream_id, app_error_code);
-      rv != 0) {
+  if(rv != 0) {
     std::cerr << "ngtcp2_conn_shutdown_stream_write: " << ngtcp2_strerror(rv)
               << std::endl;
     return -1;
@@ -1351,7 +1357,8 @@ int Client::http_stream_close(int64_t stream_id, uint64_t app_error_code) {
     ngtcp2_conn_extend_max_streams_uni(conn_, 1);
   }
 
-  if (auto it = streams_.find(stream_id); it != std::end(streams_)) {
+  auto it = streams_.find(stream_id); 
+  if (it != std::end(streams_)) {
     if (!config.quiet) {
       std::cerr << "HTTP stream " << stream_id << " closed with error code "
                 << app_error_code << std::endl;
@@ -1391,14 +1398,14 @@ int Client::setup_httpconn() {
   };
   nghttp3_settings settings;
   nghttp3_settings_default(&settings);
-  settings.qpack_max_dtable_capacity = 4_k;
+  settings.qpack_max_dtable_capacity = 4 * LIBHTTP3_K;
   settings.qpack_blocked_streams = 100;
 
   auto mem = nghttp3_mem_default();
 
-  if (auto rv =
+  auto rv =
           nghttp3_conn_client_new(&httpconn_, &callbacks, &settings, mem, this);
-      rv != 0) {
+  if(rv != 0) {
     std::cerr << "nghttp3_conn_client_new: " << nghttp3_strerror(rv)
               << std::endl;
     return -1;
@@ -1406,15 +1413,15 @@ int Client::setup_httpconn() {
 
   int64_t ctrl_stream_id;
 
-  if (auto rv = ngtcp2_conn_open_uni_stream(conn_, &ctrl_stream_id, nullptr);
-      rv != 0) {
+  rv = ngtcp2_conn_open_uni_stream(conn_, &ctrl_stream_id, nullptr);
+  if(rv != 0) {
     std::cerr << "ngtcp2_conn_open_uni_stream: " << ngtcp2_strerror(rv)
               << std::endl;
     return -1;
   }
 
-  if (auto rv = nghttp3_conn_bind_control_stream(httpconn_, ctrl_stream_id);
-      rv != 0) {
+  rv = nghttp3_conn_bind_control_stream(httpconn_, ctrl_stream_id);
+  if(rv != 0) {
     std::cerr << "nghttp3_conn_bind_control_stream: " << nghttp3_strerror(rv)
               << std::endl;
     return -1;
@@ -1426,25 +1433,23 @@ int Client::setup_httpconn() {
 
   int64_t qpack_enc_stream_id, qpack_dec_stream_id;
 
-  if (auto rv =
-          ngtcp2_conn_open_uni_stream(conn_, &qpack_enc_stream_id, nullptr);
-      rv != 0) {
+  rv = ngtcp2_conn_open_uni_stream(conn_, &qpack_enc_stream_id, nullptr);
+  if(rv != 0) {
     std::cerr << "ngtcp2_conn_open_uni_stream: " << ngtcp2_strerror(rv)
               << std::endl;
     return -1;
   }
 
-  if (auto rv =
-          ngtcp2_conn_open_uni_stream(conn_, &qpack_dec_stream_id, nullptr);
-      rv != 0) {
+  rv = ngtcp2_conn_open_uni_stream(conn_, &qpack_dec_stream_id, nullptr);
+  if(rv != 0) {
     std::cerr << "ngtcp2_conn_open_uni_stream: " << ngtcp2_strerror(rv)
               << std::endl;
     return -1;
   }
 
-  if (auto rv = nghttp3_conn_bind_qpack_streams(httpconn_, qpack_enc_stream_id,
+  rv = nghttp3_conn_bind_qpack_streams(httpconn_, qpack_enc_stream_id,
                                                 qpack_dec_stream_id);
-      rv != 0) {
+  if(rv != 0) {
     std::cerr << "nghttp3_conn_bind_qpack_streams: " << nghttp3_strerror(rv)
               << std::endl;
     return -1;
@@ -1500,7 +1505,8 @@ EXTERN void *createHttp3Conn(
         c = nullptr;
         return c;
     }
-    if (auto rv = c->on_write(); rv != 0) {
+    auto rv = c->on_write(); 
+    if (rv != 0) {
         c = nullptr;
         return c;
     }

@@ -32,7 +32,7 @@
 #include <vector>
 #include <deque>
 #include <string>
-#include <string_view>
+#include "string_view.h"
 #include <functional>
 
 #include <ngtcp2/ngtcp2_crypto.h>
@@ -40,9 +40,49 @@
 #include "tls_client_session.h"
 #include "network.h"
 #include "shared.h"
-#include "template.h"
 
 using namespace ngtcp2;
+
+#include <iostream>
+#include <functional>
+#include <utility>
+#include <type_traits>
+
+// 兼容 C++14 的 Defer 类模板
+template <typename F, typename... T>
+class Defer {
+private:
+    std::function<void()> f; // 将所有函数封装成无参 void 返回值的函数
+public:
+    // 构造函数，使用 std::bind 包装传入的函数和参数
+    Defer(F&& func, T&&... args)
+        : f(std::bind(std::forward<F>(func), std::forward<T>(args)...)) {}
+
+    // 支持移动构造函数
+    Defer(Defer&& other) noexcept : f(std::move(other.f)) {}
+
+    // 析构函数，在作用域结束时执行绑定的函数
+    ~Defer() {
+        if (f) f();
+    }
+};
+
+// 工厂函数：帮助创建 Defer 对象
+template <typename F, typename... T>
+Defer<F, T...> defer(F&& func, T&&... args) {
+    return Defer<F, T...>(std::forward<F>(func), std::forward<T>(args)...);
+}
+
+template <typename T, size_t N> constexpr size_t str_size(T (&)[N]) {
+  return N - 1;
+}
+// User-defined literals for K, M, and G (powers of 1024)
+
+#define LIBHTTP3_K 1024
+
+#define LIBHTTP3_M 1024 * 1024
+
+#define LIBHTTP3_G 1024 * 1024 * 1024
 
 struct Config {
   // quiet suppresses the output normally shown except for the error
@@ -57,18 +97,18 @@ struct Config {
   // disabled.
   bool no_http_dump = false;
   // max_data is the initial connection-level flow control window.
-  uint64_t max_data = 15_m;
+  uint64_t max_data = 15 * LIBHTTP3_M;
   // max_stream_data_bidi_local is the initial stream-level flow
   // control window for a bidirectional stream that the local endpoint
   // initiates.
-  uint64_t max_stream_data_bidi_local = 6_m;
+  uint64_t max_stream_data_bidi_local = 6 * LIBHTTP3_M;
   // max_stream_data_bidi_remote is the initial stream-level flow
   // control window for a bidirectional stream that the remote
   // endpoint initiates.
-  uint64_t max_stream_data_bidi_remote = 6_m;
+  uint64_t max_stream_data_bidi_remote = 6 * LIBHTTP3_M;
   // max_stream_data_uni is the initial stream-level flow control
   // window for a unidirectional stream.
-  uint64_t max_stream_data_uni = 6_m;
+  uint64_t max_stream_data_uni = 6 * LIBHTTP3_M;
   // max_streams_bidi is the number of the concurrent bidirectional
   // streams.
   uint64_t max_streams_bidi;
@@ -77,10 +117,10 @@ struct Config {
   uint64_t max_streams_uni = 100;
   // max_window is the maximum connection-level flow control window
   // size if auto-tuning is enabled.
-  uint64_t max_window = 24_m;
+  uint64_t max_window = 24 * LIBHTTP3_M;
   // max_stream_window is the maximum stream-level flow control window
   // size if auto-tuning is enabled.
-  uint64_t max_stream_window = 16_m;
+  uint64_t max_stream_window = 16 * LIBHTTP3_M;
   // static_secret is used to derive keying materials for Stateless
   // Retry token.
   std::array<uint8_t, 32> static_secret;

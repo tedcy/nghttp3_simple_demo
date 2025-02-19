@@ -32,7 +32,6 @@
 #include <openssl/err.h>
 
 #include "client_base.h"
-#include "template.h"
 
 extern Config config;
 

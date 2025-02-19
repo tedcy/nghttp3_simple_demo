@@ -35,7 +35,7 @@
 #endif // __STDC_FORMAT_MACROS
 
 #include <cinttypes>
-#include <string_view>
+#include "string_view.h"
 
 #include <ngtcp2/ngtcp2.h>
 #include <nghttp3/nghttp3.h>
@@ -115,7 +115,7 @@ void print_http_request_headers(int64_t stream_id, const nghttp3_nv *nva,
 void print_http_response_headers(int64_t stream_id, const nghttp3_nv *nva,
                                  size_t nvlen);
 
-std::string_view secret_title(ngtcp2_crypto_level level);
+MyStringView secret_title(ngtcp2_crypto_level level);
 
 } // namespace debug
 

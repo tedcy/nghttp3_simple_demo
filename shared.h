@@ -29,7 +29,7 @@
 #  include <config.h>
 #endif // HAVE_CONFIG_H
 
-#include <optional>
+#include "optional.h"
 
 #include <ngtcp2/ngtcp2.h>
 

@@ -3,10 +3,11 @@
 #include "tc_http/tc_epoller.h"
 #include "tc_http/tc_timeout_queue_simple.h"
 #include <dlfcn.h>
+#include <unordered_map>
 
 struct Http3Lib {
     Http3Lib() {
-        handle_ = ::dlopen(handlePath_.c_str(),
+        handle_ = ::dlopen(handlePath_,
                            RTLD_NOW | RTLD_LOCAL | RTLD_DEEPBIND);
         if (!handle_) {
             cerr << "dlopen failed|path=" << handlePath_
@@ -18,7 +19,7 @@ struct Http3Lib {
         static Http3Lib instance;
         return instance.handle_;
     }
-    static inline string handlePath_ = "../libhttp3.so";
+    static constexpr const char* handlePath_ = "../libhttp3.so";
     void *handle_ = nullptr;
 };
 

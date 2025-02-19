@@ -32,7 +32,7 @@
 #include <vector>
 #include <deque>
 #include <map>
-#include <string_view>
+#include "string_view.h"
 #include <memory>
 
 #include <ngtcp2/ngtcp2.h>
@@ -44,7 +44,6 @@
 #include "tls_client_session.h"
 #include "network.h"
 #include "shared.h"
-#include "template.h"
 
 #include <iostream>
 #include <sstream>
@@ -200,7 +199,7 @@ private:
       unsigned int ecn;
       size_t datalen;
     } blocked;
-    std::array<uint8_t, 64_k> data;
+    std::array<uint8_t, 64 * LIBHTTP3_K> data;
   } tx_;
   struct Timer : public EventLoopTimer {
       Timer(Client *client) : client_(client) {}

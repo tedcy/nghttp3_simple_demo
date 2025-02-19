@@ -44,8 +44,6 @@
 #  include <linux/rtnetlink.h>
 #endif // HAVE_LINUX_RTNETLINK_H
 
-#include "template.h"
-
 namespace ngtcp2 {
 
 unsigned int msghdr_get_ecn(msghdr *msg, int family) {

@@ -44,7 +44,9 @@ int parse_uri(taf::TC_HttpRequest &req, const string &url,
     if (http_method == "GET") {
         req.setGetRequest(url);
     }
-    for (const auto &[name, value] : headers) {
+    for (const auto &kv : headers) {
+        auto& name = kv.first;
+        auto& value = kv.second;
         req.setHeader(name, value);
     }
     return 0;

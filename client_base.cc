@@ -30,7 +30,6 @@
 #include <fstream>
 
 #include "debug.h"
-#include "template.h"
 #include "util.h"
 
 using namespace ngtcp2;
@@ -96,10 +95,10 @@ int ClientBase::read_transport_params(const char *path,
   }
 
   for (std::string line; std::getline(f, line);) {
-    if (util::istarts_with(line, "initial_max_streams_bidi="sv)) {
-      if (auto n = util::parse_uint(line.c_str() +
-                                    "initial_max_streams_bidi="sv.size());
-          !n) {
+    if (util::istarts_with(line, "initial_max_streams_bidi=")) {
+      auto n = util::parse_uint(line.c_str() +
+                                    sizeof("initial_max_streams_bidi=")-1);
+      if(!n) {
         return -1;
       } else {
         params->initial_max_streams_bidi = *n;
@@ -107,10 +106,10 @@ int ClientBase::read_transport_params(const char *path,
       continue;
     }
 
-    if (util::istarts_with(line, "initial_max_streams_uni="sv)) {
-      if (auto n = util::parse_uint(line.c_str() +
-                                    "initial_max_streams_uni="sv.size());
-          !n) {
+    if (util::istarts_with(line, "initial_max_streams_uni=")) {
+      auto n = util::parse_uint(line.c_str() +
+                                    sizeof("initial_max_streams_uni=")-1);
+      if(!n) {
         return -1;
       } else {
         params->initial_max_streams_uni = *n;
@@ -118,10 +117,10 @@ int ClientBase::read_transport_params(const char *path,
       continue;
     }
 
-    if (util::istarts_with(line, "initial_max_stream_data_bidi_local="sv)) {
-      if (auto n = util::parse_uint(
-              line.c_str() + "initial_max_stream_data_bidi_local="sv.size());
-          !n) {
+    if (util::istarts_with(line, "initial_max_stream_data_bidi_local=")) {
+      auto n = util::parse_uint(
+              line.c_str() + sizeof("initial_max_stream_data_bidi_local=")-1);
+      if(!n) {
         return -1;
       } else {
         params->initial_max_stream_data_bidi_local = *n;
@@ -129,10 +128,10 @@ int ClientBase::read_transport_params(const char *path,
       continue;
     }
 
-    if (util::istarts_with(line, "initial_max_stream_data_bidi_remote="sv)) {
-      if (auto n = util::parse_uint(
-              line.c_str() + "initial_max_stream_data_bidi_remote="sv.size());
-          !n) {
+    if (util::istarts_with(line, "initial_max_stream_data_bidi_remote=")) {
+      auto n = util::parse_uint(
+              line.c_str() + sizeof("initial_max_stream_data_bidi_remote=")-1);
+      if(!n) {
         return -1;
       } else {
         params->initial_max_stream_data_bidi_remote = *n;
@@ -140,10 +139,10 @@ int ClientBase::read_transport_params(const char *path,
       continue;
     }
 
-    if (util::istarts_with(line, "initial_max_stream_data_uni="sv)) {
-      if (auto n = util::parse_uint(line.c_str() +
-                                    "initial_max_stream_data_uni="sv.size());
-          !n) {
+    if (util::istarts_with(line, "initial_max_stream_data_uni=")) {
+      auto n = util::parse_uint(line.c_str() +
+                                    sizeof("initial_max_stream_data_uni=")-1);
+      if(!n) {
         return -1;
       } else {
         params->initial_max_stream_data_uni = *n;
@@ -151,10 +150,10 @@ int ClientBase::read_transport_params(const char *path,
       continue;
     }
 
-    if (util::istarts_with(line, "initial_max_data="sv)) {
-      if (auto n =
-              util::parse_uint(line.c_str() + "initial_max_data="sv.size());
-          !n) {
+    if (util::istarts_with(line, "initial_max_data=")) {
+      auto n =
+              util::parse_uint(line.c_str() + sizeof("initial_max_data=")-1);
+      if(!n) {
         return -1;
       } else {
         params->initial_max_data = *n;
@@ -162,10 +161,10 @@ int ClientBase::read_transport_params(const char *path,
       continue;
     }
 
-    if (util::istarts_with(line, "active_connection_id_limit="sv)) {
-      if (auto n = util::parse_uint(line.c_str() +
-                                    "active_connection_id_limit="sv.size());
-          !n) {
+    if (util::istarts_with(line, "active_connection_id_limit=")) {
+      auto n = util::parse_uint(line.c_str() +
+                                    sizeof("active_connection_id_limit=")-1);
+      if(!n) {
         return -1;
       } else {
         params->active_connection_id_limit = *n;
@@ -173,10 +172,10 @@ int ClientBase::read_transport_params(const char *path,
       continue;
     }
 
-    if (util::istarts_with(line, "max_datagram_frame_size="sv)) {
-      if (auto n = util::parse_uint(line.c_str() +
-                                    "max_datagram_frame_size="sv.size());
-          !n) {
+    if (util::istarts_with(line, "max_datagram_frame_size=")) {
+      auto n = util::parse_uint(line.c_str() +
+                                    sizeof("max_datagram_frame_size=")-1);
+      if(!n) {
         return -1;
       } else {
         params->max_datagram_frame_size = *n;

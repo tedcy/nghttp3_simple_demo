@@ -35,7 +35,7 @@
 #include <openssl/evp.h>
 #include <openssl/rand.h>
 
-#include "template.h"
+#include "client_base.h"
 
 namespace ngtcp2 {
 
@@ -81,9 +81,9 @@ namespace {
 void openssl_free_wrap(void *ptr) { OPENSSL_free(ptr); }
 } // namespace
 
-std::optional<std::string> read_pem(const std::string_view &filename,
-                                    const std::string_view &name,
-                                    const std::string_view &type) {
+MyOptional<std::string> read_pem(const MyStringView &filename,
+                                    const MyStringView &name,
+                                    const MyStringView &type) {
   auto f = BIO_new_file(filename.data(), "r");
   if (f == nullptr) {
     std::cerr << "Could not open " << name << " file " << filename << std::endl;
@@ -114,8 +114,8 @@ std::optional<std::string> read_pem(const std::string_view &filename,
   return std::string{data, data + datalen};
 }
 
-int write_pem(const std::string_view &filename, const std::string_view &name,
-              const std::string_view &type, const uint8_t *data,
+int write_pem(const MyStringView &filename, const MyStringView &name,
+              const MyStringView &type, const uint8_t *data,
               size_t datalen) {
   auto f = BIO_new_file(filename.data(), "w");
   if (f == nullptr) {
